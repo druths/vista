@@ -107,10 +107,24 @@ class Brief:
 
     @property
     def effective_date(self) -> datetime:
-        """The date used for sorting and display."""
+        """The instant used for ordering. Not for display — see display_date."""
         if self.date:
             return datetime(self.date.year, self.date.month, self.date.day, tzinfo=timezone.utc)
         return datetime.fromtimestamp(self.mtime, tz=timezone.utc)
+
+    @property
+    def display_date(self) -> date:
+        """The brief's date as a calendar date.
+
+        A date read from a filename is a calendar date, not a moment in time.
+        Sending it as an instant (midnight UTC) meant clients west of UTC
+        rendered it in local time and showed the previous day — a brief named
+        AI-2026-09-08 displayed as 2026-09-07. Calendar dates travel as
+        YYYY-MM-DD so no client can shift them across a zone.
+        """
+        if self.date:
+            return self.date
+        return datetime.fromtimestamp(self.mtime, tz=timezone.utc).date()
 
     @property
     def date_source(self) -> str:
@@ -121,7 +135,8 @@ class Brief:
             "key": self.key,
             "title": self.title,
             "folder": self.folder,
-            "date": self.effective_date.isoformat(),
+            # A calendar date (YYYY-MM-DD), deliberately not an instant.
+            "date": self.display_date.isoformat(),
             "date_source": self.date_source,
             "modified": datetime.fromtimestamp(self.mtime, tz=timezone.utc).isoformat(),
             "size": self.size,

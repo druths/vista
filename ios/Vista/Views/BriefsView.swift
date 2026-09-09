@@ -102,10 +102,9 @@ private struct BriefRow: View {
     }
 
     private var dateText: String {
-        let formatted = brief.date.formatted(date: .abbreviated, time: .omitted)
         // A tilde marks a date guessed from the file's mtime rather than read
         // from its name.
-        return brief.dateIsApproximate ? "\(formatted) ~" : formatted
+        return brief.dateIsApproximate ? "\(brief.displayDate) ~" : brief.displayDate
     }
 }
 

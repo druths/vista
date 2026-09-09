@@ -38,7 +38,10 @@ struct Brief: Codable, Identifiable, Hashable {
     let key: String
     let title: String
     let folder: String
-    let date: Date
+    /// A calendar date (`2026-09-08`), not an instant — kept as text so no
+    /// timezone conversion can move it. Sent as midnight UTC it rendered as
+    /// the previous day for anyone west of UTC.
+    let date: String
     let dateSource: String
     let modified: Date
     let size: Int
@@ -56,6 +59,18 @@ struct Brief: Codable, Identifiable, Hashable {
     var dateIsApproximate: Bool { dateSource == "mtime" }
 
     var isPDF: Bool { primaryKind == "pdf" }
+
+    /// The brief's date rendered in the reader's locale, built from its parts
+    /// in the local calendar so the day never shifts.
+    var displayDate: String {
+        let parts = date.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3,
+              let local = Calendar.current.date(from: DateComponents(
+                  year: parts[0], month: parts[1], day: parts[2])) else {
+            return date
+        }
+        return local.formatted(date: .abbreviated, time: .omitted)
+    }
 
     enum CodingKeys: String, CodingKey {
         case key, title, folder, date, modified, size, annotated

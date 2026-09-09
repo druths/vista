@@ -136,6 +136,13 @@ Personal_Family_Brief-2026-06-01    daily_brief_2026-06-03
 When every brief in a briefing shares a title (the usual case for a daily
 series), the list leads with the date instead of repeating the title.
 
+A brief's date travels as a **calendar date** (`2026-09-08`), never as a
+timestamp. Sent as midnight UTC it rendered as the previous day for every
+client west of UTC — a brief named `AI-2026-09-08` showed as Sep 7 in Eastern
+time. Clients must build it from its parts rather than parsing it as an
+instant, since `new Date("2026-09-08")` in JavaScript is midnight *UTC*.
+`modified` is a genuine instant and stays one.
+
 ### Markup is non-destructive
 
 Marking up a brief on iPad writes `<name>.annotated.pdf` **beside** the

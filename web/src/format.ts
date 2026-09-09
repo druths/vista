@@ -1,7 +1,21 @@
 /** Shared display helpers. */
 
-export function formatDate(iso: string): string {
-  const date = new Date(iso);
+const CALENDAR_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * Format a date for display.
+ *
+ * Accepts a calendar date (`2026-09-08`) or a full instant. The distinction
+ * matters: `new Date("2026-09-08")` parses as midnight **UTC**, so rendering
+ * it with `toLocaleDateString` shows the previous day everywhere west of UTC.
+ * A calendar date is therefore rebuilt in local time from its parts, never
+ * parsed as an instant.
+ */
+export function formatDate(value: string): string {
+  const parts = CALENDAR_DATE.exec(value);
+  const date = parts
+    ? new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]))
+    : new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleDateString(undefined, {
     year: "numeric",

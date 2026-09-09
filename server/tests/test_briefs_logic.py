@@ -101,3 +101,34 @@ def test_preview_of_an_empty_note_is_empty() -> None:
 
     assert preview_of("") == ""
     assert preview_of("# Standup\n", "Standup") == ""
+
+
+def test_display_date_is_a_calendar_date_not_an_instant() -> None:
+    """A date read from a filename must not travel as a timestamp.
+
+    Sent as midnight UTC, every client west of UTC rendered the previous day:
+    a brief named AI-2026-09-08 showed as 2026-09-07.
+    """
+    from vista.briefs import Brief
+
+    brief = Brief(key="k", title="AI", folder="", date=date(2026, 9, 8),
+                  mtime=0.0, size=1)
+    payload = brief.to_json()
+
+    assert payload["date"] == "2026-09-08"
+    assert "T" not in payload["date"], "a calendar date carries no time or zone"
+    assert payload["date_source"] == "filename"
+
+
+def test_display_date_falls_back_to_the_file_time() -> None:
+    from datetime import datetime, timezone
+
+    from vista.briefs import Brief
+
+    stamp = datetime(2026, 3, 4, 15, 30, tzinfo=timezone.utc).timestamp()
+    brief = Brief(key="k", title="Untitled", folder="", date=None,
+                  mtime=stamp, size=1)
+    payload = brief.to_json()
+
+    assert payload["date"] == "2026-03-04"
+    assert payload["date_source"] == "mtime"
