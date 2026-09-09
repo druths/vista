@@ -27,7 +27,12 @@ recover after a reboot.
 ```bash
 git clone https://github.com/druths/vista.git /opt/vista
 cd /opt/vista
-cp deploy/vista-update /usr/local/bin/ && chmod +x /usr/local/bin/vista-update
+install -m 0755 deploy/vista-update /usr/local/bin/vista-update
+
+# The repo is owned by druths so it can be worked in directly, but
+# vista-update runs as root, and git refuses a repo owned by someone else.
+chown -R druths:druths /opt/vista
+git config --global --add safe.directory /opt/vista
 
 # .env is not in the repo — it holds the secret key.
 cat > .env <<'ENV'
