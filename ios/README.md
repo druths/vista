@@ -109,6 +109,18 @@ markup*.
 Markup is enabled on iPhone as well as iPad; it's the same system editor, and
 there was no reason to switch it off on a smaller screen.
 
+## Appearance
+
+Settings offers System / Light / Dark, stored in `UserDefaults` via
+`@AppStorage` and applied with `.preferredColorScheme` on the root view.
+`System` passes `nil`, which is not "light" — it's "don't override", leaving
+iOS in charge so the app follows the device's own light/dark schedule.
+
+While set to System, `@Environment(\.colorScheme)` reports what the device
+currently resolves to, so the setting can say "currently Dark". Under an
+explicit override that environment value just echoes the override, which is why
+the label is only shown for System.
+
 ## Layout
 
 `NavigationSplitView` gives the sidebar/detail layout an iPad wants and

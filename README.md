@@ -143,6 +143,17 @@ original. The source brief is never modified, so a sync bug cannot destroy
 it. Vista opens the marked-up copy by default, offers "Show original", and
 `DELETE /api/briefings/{id}/annotation` discards the markup.
 
+## Appearance
+
+Both clients offer **System / Light / Dark**, defaulting to System — which
+doesn't pick a side, it declines to override, so Vista follows the device
+including its automatic evening switch.
+
+The choice is stored per device (`localStorage` on the web, `UserDefaults` on
+iOS), not on the account: a laptop in light and a phone in dark is a normal way
+to work, and appearance belongs to the thing you're reading on rather than to
+who you are.
+
 ## Notes
 
 A flat directory of `.md` / `.txt` files. A note is a file, its name is its

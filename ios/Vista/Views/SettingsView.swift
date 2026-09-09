@@ -2,6 +2,11 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
+    @AppStorage(Appearance.storageKey) private var appearance: Appearance = .system
+    /// While following the system this is the system's own setting, so it can
+    /// be named. Under an explicit override it just echoes that override,
+    /// which is why it is only shown for `.system`.
+    @Environment(\.colorScheme) private var resolvedScheme
 
     @State private var settings: Settings?
     @State private var arkURL = ""
@@ -30,6 +35,7 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            appearanceSection
             arkSection
             notesSection
             briefingsSection
@@ -50,6 +56,25 @@ struct SettingsView: View {
                                             set: { pendingName = $0 }))
             Button("Cancel", role: .cancel) { pendingName = nil }
             Button("Add") { Task { await addBriefing() } }
+        }
+    }
+
+    // MARK: - Appearance
+
+    private var appearanceSection: some View {
+        Section {
+            Picker("Appearance", selection: $appearance) {
+                ForEach(Appearance.allCases) { option in
+                    Text(option.label).tag(option)
+                }
+            }
+            .pickerStyle(.segmented)
+        } header: {
+            Text("Appearance")
+        } footer: {
+            Text(appearance == .system
+                 ? "Following this device, currently \(resolvedScheme == .dark ? "Dark" : "Light"). It will switch automatically when the device does."
+                 : "Vista stays \(appearance.label.lowercased()) whatever the device is set to.")
         }
     }
 

@@ -7,6 +7,7 @@ import SwiftUI
 /// serves both without branching on size class.
 struct RootView: View {
     @Environment(AppModel.self) private var model
+    @AppStorage(Appearance.storageKey) private var appearance: Appearance = .system
 
     var body: some View {
         @Bindable var model = model
@@ -28,6 +29,8 @@ struct RootView: View {
         } message: {
             Text(model.errorMessage ?? "")
         }
+        // nil for .system, which leaves the device in charge.
+        .preferredColorScheme(appearance.colorScheme)
     }
 }
 

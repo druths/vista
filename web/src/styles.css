@@ -8,6 +8,10 @@
   --text-faint: #96968f;
   --accent: #2f6f5e;
   --accent-soft: #e6f0ec;
+  /* Text that sits *on* the accent. The dark palette lightens the accent for
+     legibility against a dark ground, at which point white text on it is
+     barely readable — so this flips with the theme. */
+  --accent-contrast: #ffffff;
   --danger: #a4342b;
   --radius: 8px;
   --sidebar: 232px;
@@ -15,20 +19,46 @@
   color-scheme: light dark;
 }
 
+/* Dark palette in two places, deliberately.
+   The media query covers "follow the system", excluding the case where the
+   reader has explicitly chosen light. The attribute rule covers an explicit
+   dark choice, which has to win even on a light system. Custom properties
+   can't be shared across a media-query boundary, so the list is repeated
+   rather than abstracted. */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #16171a;
-    --surface: #1d1f23;
-    --surface-alt: #24262b;
-    --border: #32353b;
-    --text: #e8e8e6;
-    --text-soft: #a0a29f;
-    --text-faint: #74766f;
-    --accent: #6fb39c;
-    --accent-soft: #21332d;
-    --danger: #d97c72;
+  :root:not([data-theme="light"]) {
+  --bg: #16171a;
+  --surface: #1d1f23;
+  --surface-alt: #24262b;
+  --border: #32353b;
+  --text: #e8e8e6;
+  --text-soft: #a0a29f;
+  --text-faint: #74766f;
+  --accent: #6fb39c;
+  --accent-soft: #21332d;
+  --accent-contrast: #10231d;
+  --danger: #d97c72;
   }
 }
+
+:root[data-theme="dark"] {
+  --bg: #16171a;
+  --surface: #1d1f23;
+  --surface-alt: #24262b;
+  --border: #32353b;
+  --text: #e8e8e6;
+  --text-soft: #a0a29f;
+  --text-faint: #74766f;
+  --accent: #6fb39c;
+  --accent-soft: #21332d;
+  --accent-contrast: #10231d;
+  --danger: #d97c72;
+}
+
+/* Keep form controls, scrollbars and caret colours in step with an explicit
+   choice; without this the browser still styles them for the system theme. */
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
 
 * { box-sizing: border-box; }
 
@@ -69,7 +99,7 @@ input:focus, textarea:focus, select:focus {
 
 .btn-primary {
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-contrast);
   font-weight: 500;
 }
 .btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
@@ -331,6 +361,28 @@ input:focus, textarea:focus, select:focus {
   font-size: 13px;
 }
 
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+  align-self: flex-start;
+}
+.segment {
+  border: 0;
+  border-radius: 0;
+  padding: 6px 16px;
+  color: var(--text-soft);
+  border-right: 1px solid var(--border);
+}
+.segment:last-child { border-right: 0; }
+.segment:hover { background: var(--surface-alt); }
+.segment.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 500;
+}
+
 /* --- path picker --------------------------------------------------------- */
 
 .modal-backdrop {
@@ -418,8 +470,9 @@ input:focus, textarea:focus, select:focus {
   align-items: center;
 }
 @media (prefers-color-scheme: dark) {
-  .error-bar { background: #3a221f; color: #f0b8b1; }
+  :root:not([data-theme="light"]) .error-bar { background: #3a221f; color: #f0b8b1; }
 }
+:root[data-theme="dark"] .error-bar { background: #3a221f; color: #f0b8b1; }
 .error-bar .spacer { flex: 1; }
 
 /* --- login --------------------------------------------------------------- */

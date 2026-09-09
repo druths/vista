@@ -13,6 +13,7 @@ import {
   updateBriefing,
 } from "./api";
 import { PathPicker } from "./PathPicker";
+import { THEMES, type Theme, loadTheme, saveTheme, systemTheme } from "./theme";
 
 /** Folder names that describe a build step rather than the briefing itself. */
 const GENERIC_SEGMENTS = new Set(["output", "outputs", "pdf", "pdfs", "files", "docs", "dist", "build"]);
@@ -73,6 +74,8 @@ export function SettingsScreen({
       </div>
 
       <div className="settings scroll">
+        <AppearanceSection />
+
         <ArkSection settings={settings} onSaved={refresh} onError={onError} />
 
         <NotesSection
@@ -124,6 +127,54 @@ export function SettingsScreen({
         />
       )}
     </>
+  );
+}
+
+// --- appearance ------------------------------------------------------------
+
+function AppearanceSection() {
+  const [theme, setTheme] = useState<Theme>(loadTheme);
+  const [resolved, setResolved] = useState(systemTheme);
+
+  // The OS can flip while the page is open — on a schedule, or by hand. While
+  // following the system, track it so the label stays honest.
+  useEffect(() => {
+    const query = window.matchMedia?.("(prefers-color-scheme: dark)");
+    if (!query) return;
+    const onChange = () => setResolved(systemTheme());
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+
+  function choose(next: Theme) {
+    setTheme(next);
+    saveTheme(next);
+  }
+
+  return (
+    <section className="card">
+      <h2>Appearance</h2>
+      <p className="hint">
+        {theme === "system"
+          ? `Following this browser, currently ${resolved}. It will switch automatically when the system does.`
+          : `Vista stays ${theme} whatever the system is set to.`}
+      </p>
+      <div className="segmented" role="group" aria-label="Appearance">
+        {THEMES.map((option) => (
+          <button
+            key={option.value}
+            className={theme === option.value ? "segment active" : "segment"}
+            aria-pressed={theme === option.value}
+            onClick={() => choose(option.value)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      <p className="hint" style={{ marginTop: 4 }}>
+        Saved in this browser, not on your account.
+      </p>
+    </section>
   );
 }
 
