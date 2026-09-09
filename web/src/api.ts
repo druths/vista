@@ -5,8 +5,24 @@
  * and this client authenticates with its own session token.
  */
 
-const API_BASE: string =
-  (import.meta.env.VITE_API_BASE as string | undefined) ?? "http://127.0.0.1:8800";
+/**
+ * Where the API lives.
+ *
+ * With no explicit VITE_API_BASE, the address is derived from the host the
+ * page was loaded from. That way a single build works whether the client is
+ * opened over loopback, a LAN address, or a Tailscale name — a baked-in
+ * 127.0.0.1 would break the moment the page is opened from another device.
+ */
+function resolveApiBase(): string {
+  const explicit = (import.meta.env.VITE_API_BASE as string | undefined)?.trim();
+  if (explicit) return explicit.replace(/\/$/, "");
+
+  const port = (import.meta.env.VITE_API_PORT as string | undefined)?.trim() || "8800";
+  const { protocol, hostname } = window.location;
+  return `${protocol}//${hostname}:${port}`;
+}
+
+const API_BASE: string = resolveApiBase();
 
 const TOKEN_KEY = "vista.session";
 

@@ -43,6 +43,33 @@ docker compose up vista web
 
 Set `VISTA_API_PORT` / `VISTA_WEB_PORT` in `.env` if those ports are taken.
 
+### Reaching Vista from another device
+
+Both services publish on loopback by default. To use Vista from a phone or
+tablet — over Tailscale, say — set the interface to publish on:
+
+```bash
+VISTA_BIND=0.0.0.0        # every interface
+VISTA_BIND=100.x.y.z      # or one address, e.g. this machine's Tailscale IP
+```
+
+`0.0.0.0` also exposes Vista to whatever local network the machine is on, not
+only to the VPN; binding to the Tailscale address alone avoids that.
+
+Then add the origins you actually load the web client from to
+`VISTA_CORS_ORIGINS`, and the hostnames to `VITE_ALLOWED_HOSTS` (Vite's dev
+server answers unknown `Host` headers with a 403):
+
+```bash
+VISTA_CORS_ORIGINS=http://localhost:5173,http://my-host.tailnet.ts.net:5173
+VITE_ALLOWED_HOSTS=localhost,127.0.0.1,web,my-host.tailnet.ts.net
+```
+
+Leave `VITE_API_BASE` blank and the web client derives the API address from
+whatever host served the page, so one build works over loopback and over
+Tailscale without rebuilding. The iOS app asks for the server address at
+sign-in, so it needs nothing here.
+
 > `VISTA_SECRET_KEY` signs sessions **and** derives the key encrypting stored
 > Ark tokens. Changing it logs everyone out and makes saved Ark tokens
 > unreadable — they have to be re-entered. Back it up.

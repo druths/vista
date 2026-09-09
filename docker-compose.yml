@@ -23,7 +23,10 @@ services:
       VISTA_HOME: /data
       VISTA_CORS_ORIGINS: ${VISTA_CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
     ports:
-      - "127.0.0.1:${VISTA_API_PORT:-8800}:8800"
+      # VISTA_BIND defaults to loopback. Set it to 0.0.0.0 to reach Vista from
+      # other devices (over Tailscale, say), or to a specific address such as
+      # your Tailscale IP to expose it on that interface only.
+      - "${VISTA_BIND:-127.0.0.1}:${VISTA_API_PORT:-8800}:8800"
     stdin_open: true
     tty: true
 
@@ -36,9 +39,14 @@ services:
       - ./web/index.html:/app/index.html
       - ./web/vite.config.ts:/app/vite.config.ts
     environment:
-      VITE_API_BASE: ${VITE_API_BASE:-http://127.0.0.1:8800}
+      # Left unset, the client derives the API address from whatever host the
+      # page was loaded from, so one build works over loopback, a LAN address
+      # and a Tailscale name alike.
+      VITE_API_BASE: ${VITE_API_BASE:-}
+      VITE_API_PORT: ${VISTA_API_PORT:-8800}
+      VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-}
     ports:
-      - "127.0.0.1:${VISTA_WEB_PORT:-5173}:5173"
+      - "${VISTA_BIND:-127.0.0.1}:${VISTA_WEB_PORT:-5173}:5173"
 
 volumes:
   vista-data:
