@@ -138,6 +138,9 @@ struct BriefReaderView: View {
             }
             status = .ready
         } catch {
+            // Leaving the brief cancels the download; that is not a failure to
+            // put on screen.
+            guard !AppModel.isCancellation(error) else { return }
             status = .failed(error.localizedDescription)
         }
     }

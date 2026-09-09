@@ -97,11 +97,22 @@ final class AppModel {
     }
 
     func report(_ error: Error) {
+        // A request torn down because the user moved on is not something to
+        // interrupt them about. Leaving a brief mid-load, or switching screens
+        // while a list is loading, cancels its work by design.
+        if Self.isCancellation(error) { return }
+
         if case VistaError.unauthorized = error {
             signOut()
             errorMessage = "Your session has expired. Sign in again."
             return
         }
         errorMessage = error.localizedDescription
+    }
+
+    static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if let urlError = error as? URLError, urlError.code == .cancelled { return true }
+        return false
     }
 }

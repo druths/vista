@@ -143,10 +143,21 @@ actor VistaClient {
         do {
             (data, response) = try await session.data(for: request)
         } catch {
-            throw VistaError.transport(error.localizedDescription)
+            throw Self.mapTransport(error)
         }
         try Self.check(response: response, data: data)
         return data
+    }
+
+    /// Navigating away cancels in-flight requests. That is control flow, not
+    /// failure, so it is rethrown as `CancellationError` rather than being
+    /// flattened into a transport error whose message is the word "cancelled".
+    private static func mapTransport(_ error: Error) -> Error {
+        if error is CancellationError { return error }
+        if let urlError = error as? URLError, urlError.code == .cancelled {
+            return CancellationError()
+        }
+        return VistaError.transport(error.localizedDescription)
     }
 
     private static func check(response: URLResponse, data: Data) throws {
@@ -216,7 +227,7 @@ actor VistaClient {
         do {
             (data, response) = try await session.data(for: request)
         } catch {
-            throw VistaError.transport(error.localizedDescription)
+            throw Self.mapTransport(error)
         }
         try Self.check(response: response, data: data)
 
