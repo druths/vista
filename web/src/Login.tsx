@@ -23,6 +23,7 @@ export function Login({ onSignedIn }: { onSignedIn: (user: User) => void }) {
   return (
     <div className="login-screen">
       <form className="login-card" onSubmit={submit}>
+        <img className="login-mark" src="/logo-512.png" alt="" width={64} height={64} />
         <h1>Vista</h1>
         <p>Briefs and notes from your Ark workspace.</p>
         <div>

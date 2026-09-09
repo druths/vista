@@ -21,6 +21,18 @@ struct LoginView: View {
         NavigationStack {
             Form {
                 Section {
+                    Image("Logo")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 72, height: 72)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .listRowBackground(Color.clear)
+                        .accessibilityHidden(true)
+                }
+
+                Section {
                     TextField("vista.example.com:8800", text: $model.serverAddress)
                         .textContentType(.URL)
                         .keyboardType(.URL)

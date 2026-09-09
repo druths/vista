@@ -36,6 +36,7 @@ services:
     container_name: vista-web
     volumes:
       - ./web/src:/app/src
+      - ./web/public:/app/public
       - ./web/index.html:/app/index.html
       - ./web/vite.config.ts:/app/vite.config.ts
     environment:

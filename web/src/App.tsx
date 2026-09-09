@@ -64,8 +64,11 @@ export function App() {
     <div className="shell">
       <nav className="sidebar">
         <div className="brand">
-          Vista
-          <span>{user.ark_agent ? `agent · ${user.ark_agent}` : "not connected"}</span>
+          <img className="brand-mark" src="/logo-512.png" alt="" width={26} height={26} />
+          <div>
+            Vista
+            <span>{user.ark_agent ? `agent · ${user.ark_agent}` : "not connected"}</span>
+          </div>
         </div>
 
         <div className="nav">

@@ -6,8 +6,10 @@
   --text: #1c1c1a;
   --text-soft: #6b6b66;
   --text-faint: #96968f;
-  --accent: #2f6f5e;
-  --accent-soft: #e6f0ec;
+  /* Drawn from the logo: its mid purple (#5A218C) and a pale tint of its
+     light peak. */
+  --accent: #5a218c;
+  --accent-soft: #f0e7f7;
   /* Text that sits *on* the accent. The dark palette lightens the accent for
      legibility against a dark ground, at which point white text on it is
      barely readable — so this flips with the theme. */
@@ -34,9 +36,9 @@
   --text: #e8e8e6;
   --text-soft: #a0a29f;
   --text-faint: #74766f;
-  --accent: #6fb39c;
-  --accent-soft: #21332d;
-  --accent-contrast: #10231d;
+  --accent: #b98fdd;
+  --accent-soft: #2a1e3a;
+  --accent-contrast: #1b1026;
   --danger: #d97c72;
   }
 }
@@ -49,9 +51,9 @@
   --text: #e8e8e6;
   --text-soft: #a0a29f;
   --text-faint: #74766f;
-  --accent: #6fb39c;
-  --accent-soft: #21332d;
-  --accent-contrast: #10231d;
+  --accent: #b98fdd;
+  --accent-soft: #2a1e3a;
+  --accent-contrast: #1b1026;
   --danger: #d97c72;
 }
 
@@ -127,8 +129,24 @@ input:focus, textarea:focus, select:focus {
   font-weight: 600;
   letter-spacing: -0.01em;
   padding: 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
 }
 .brand span { color: var(--text-faint); font-weight: 400; font-size: 12px; display: block; }
+.brand-mark {
+  border-radius: 6px;
+  flex: 0 0 auto;
+  /* The logo is a full-bleed image, so it needs its own edge against the
+     sidebar rather than blending into it. */
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.08);
+}
+
+.login-mark {
+  border-radius: 14px;
+  align-self: flex-start;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.16);
+}
 
 .nav { display: flex; flex-direction: column; gap: 2px; }
 .nav-item {
@@ -511,6 +529,7 @@ input:focus, textarea:focus, select:focus {
   :root { --sidebar: 64px; --list: 100%; }
   .hidden-narrow { display: none; }
   .brand span, .nav-item span.label, .nav-group-label, .sidebar-foot span { display: none; }
+  .brand { justify-content: center; padding: 0; font-size: 0; }
   .nav-item { text-align: center; }
   .note-list { flex: 1 1 100%; border-right: 0; }
   .note-list.hidden { display: none; }
