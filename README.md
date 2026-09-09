@@ -134,6 +134,7 @@ server/           FastAPI app — accounts, Ark proxying, brief/note shaping
   vista/security.py scrypt passwords, JWT sessions, Fernet-encrypted Ark tokens
   vista/cli.py      account provisioning
 web/              React + TypeScript client (Vite)
+ios/              SwiftUI app for iPhone and iPad
 ```
 
 ## Tests
@@ -155,14 +156,15 @@ elsewhere if yours lives somewhere else.
 
 - [x] Vista server — accounts, Ark connection, briefs, notes, annotations
 - [x] Web client — briefs, PDF reader, notes with autosave, settings
-- [ ] iOS app (iPhone + iPad) with Apple Markup on briefs
+- [x] iOS app (iPhone + iPad) with Apple Markup on briefs — see [ios/README.md](ios/README.md)
 
 ## Known gaps
 
-- The web client fetches a whole PDF as a blob before displaying it, so the
-  browser's viewer shows a blob id rather than a filename. The API supports
-  Range requests; using them from the browser would mean putting the session
-  token in a URL, which isn't worth the trade. iOS will stream via PDFKit.
+- Both clients download a whole PDF before displaying it rather than using the
+  API's Range support: the browser would need the session token in a URL to do
+  otherwise, and PDFKit wants a file on disk anyway. Range still works and is
+  tested — it just isn't on the critical path today. In the browser this shows
+  up as a blob id instead of a filename in the PDF viewer's title bar.
 - Ark's `PUT` is a whole-file write with no compare-and-swap, so two clients
   editing one note last-write-wins.
 - Changing a password is still CLI-only (`vista users passwd`); the settings

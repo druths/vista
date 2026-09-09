@@ -24,3 +24,11 @@ dist/
 # Throwaway Ark home for integration tests — keep only the config
 .test-ark-home/*
 !.test-ark-home/config.json
+
+# Xcode
+ios/build/
+ios/DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+.swiftpm/
