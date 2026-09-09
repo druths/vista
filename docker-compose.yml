@@ -33,6 +33,7 @@ services:
   web:
     build:
       context: ./web
+      target: dev
     container_name: vista-web
     volumes:
       - ./web/src:/app/src
@@ -48,6 +49,19 @@ services:
       VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-}
     ports:
       - "${VISTA_BIND:-127.0.0.1}:${VISTA_WEB_PORT:-5173}:5173"
+
+  # The installable build: a static bundle over nginx. Chrome only offers to
+  # install a site served from a secure context, which means HTTPS or
+  # localhost — over plain HTTP to a LAN or VPN address it will not.
+  #   docker compose up --build web-prod   ->   http://127.0.0.1:5180
+  web-prod:
+    build:
+      context: ./web
+      target: prod
+    container_name: vista-web-prod
+    ports:
+      - "${VISTA_BIND:-127.0.0.1}:${VISTA_WEB_PROD_PORT:-5180}:5173"
+    profiles: ["prod"]
 
 volumes:
   vista-data:

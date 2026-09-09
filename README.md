@@ -43,6 +43,42 @@ docker compose up vista web
 
 Set `VISTA_API_PORT` / `VISTA_WEB_PORT` in `.env` if those ports are taken.
 
+### Installing the web client as an app
+
+The web client is a PWA. The **production** build is the installable one — the
+service worker only registers in a built app, never in front of the dev server
+where it would serve stale modules.
+
+```bash
+docker compose --profile prod up --build web-prod   # http://127.0.0.1:5180
+```
+
+Open that in Chrome and use the install button in the address bar. Add the
+origin you load it from to `VISTA_CORS_ORIGINS`, same as the dev server.
+
+**Chrome only offers to install from a secure context — HTTPS, or
+`localhost`.** Over plain HTTP to a LAN or Tailscale address it will not:
+`navigator.serviceWorker` is not merely blocked there, it does not exist. So:
+
+| How you reach it | Installable |
+|---|---|
+| `http://127.0.0.1:5180` on the machine itself | yes |
+| `http://<lan-or-tailscale-address>:5180` | no |
+| `https://…` with a trusted certificate | yes |
+
+To install from another device you need real TLS. Tailscale's own
+`tailscale cert` covers a `*.ts.net` MagicDNS name, but not a Headscale tailnet
+with a custom suffix; the alternative is a certificate for a domain you control
+(DNS-01) with a reverse proxy in front of Vista. Chrome can also be told to
+trust one insecure origin via
+`--unsafely-treat-insecure-origin-as-secure=http://host:5180`, which is
+per-device and per-flag rather than a real fix.
+
+The service worker deliberately never touches `/api/` — caching it would show
+stale briefs and could serve one account's data to another. It caches only the
+app shell and Vite's content-hashed assets, so an offline launch opens the UI
+rather than the browser's error page.
+
 ### Reaching Vista from another device
 
 Both services publish on loopback by default. To use Vista from a phone or
