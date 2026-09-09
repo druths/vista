@@ -1,15 +1,38 @@
 import Foundation
 import Security
 
-/// Minimal Keychain wrapper for the Vista session token.
+/// Minimal Keychain wrapper for the credentials Vista holds.
 ///
-/// The session token is a bearer credential for an account that can read and
-/// write an entire Ark workspace, so it belongs in the Keychain rather than
-/// UserDefaults.
+/// Both the session token and any saved-account passwords are credentials for
+/// an account that can read and write an entire Ark workspace, so they belong
+/// in the Keychain rather than UserDefaults.
 enum Keychain {
     private static let service = "com.derekruths.vista.session"
+    /// Saved-account passwords live under their own service so clearing a
+    /// session never touches them.
+    private static let accountsService = "com.derekruths.vista.accounts"
 
     static func set(_ value: String?, for account: String) {
+        write(value, service: service, account: account)
+    }
+
+    static func get(_ account: String) -> String? {
+        read(service: service, account: account)
+    }
+
+    // MARK: - Saved-account passwords
+
+    static func setPassword(_ password: String?, forAccountID id: String) {
+        write(password, service: accountsService, account: id)
+    }
+
+    static func password(forAccountID id: String) -> String? {
+        read(service: accountsService, account: id)
+    }
+
+    // MARK: - Storage
+
+    private static func write(_ value: String?, service: String, account: String) {
         // Delete first: SecItemUpdate has more edge cases than it's worth here.
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -28,7 +51,7 @@ enum Keychain {
         SecItemAdd(insert as CFDictionary, nil)
     }
 
-    static func get(_ account: String) -> String? {
+    private static func read(service: String, account: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,

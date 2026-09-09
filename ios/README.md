@@ -19,10 +19,40 @@ Simulator needs nothing. The bundle id is `com.derekruths.vista`.
 ## Pointing it at a server
 
 Unlike the web client, an installed app has no build-time configuration, so the
-**Vista server address** is the first field on the sign-in screen. It's kept in
-`UserDefaults` for next launch; the session token goes to the **Keychain**
+**Vista server address** is the first field on the sign-in screen. The session
+token goes to the **Keychain**
 (`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` — device-only, out of
 backups and iCloud Keychain).
+
+### Recent sign-ins
+
+Below the form, a **Recent** list remembers previous sign-ins so moving between
+Vista backends doesn't mean retyping a server, an email, and a password
+(modelled on Relay's saved-accounts list).
+
+- An entry is recorded only **after a sign-in succeeds**, so a typo never lands
+  in the history.
+- Accounts are keyed by email **and** server, so the same person on two
+  backends is two entries — which is what makes switching useful.
+- Tapping an entry **fills the form** (including the password) rather than
+  signing in outright, so you can see which account you're about to use. Then
+  press Sign in.
+- Editing the email or server afterwards drops the checkmark, since it's no
+  longer the account you picked.
+- The ✕ on a row forgets it, removing its Keychain password too.
+- Signing out deliberately **keeps** the list — that's how you get back here to
+  switch. Cached briefs are cleared, because the next server's briefs are not
+  these.
+- On a cold start the most recent account is pre-filled, so signing back into
+  the server you were just using is one tap.
+
+The list lives in `UserDefaults`; each password is in the Keychain under the
+account's id, in a separate keychain service from the session token so clearing
+a session never touches saved passwords. Ordering is by last use.
+
+This is iOS-only. The web client has no server field to switch — its API base
+is a build-time `VITE_API_BASE` — which is the same reason Relay's web frontend
+has no saved-accounts list either.
 
 A Vista server on a LAN is usually plain HTTP, which App Transport Security
 blocks by default. `Vista-Info.plist` sets `NSAllowsLocalNetworking`, which
@@ -75,11 +105,12 @@ Vista/
   Services/
     VistaClient.swift       actor wrapping the API
     AppModel.swift          @Observable app state
-    Keychain.swift          session token storage
+    Keychain.swift          session token + saved-account passwords
+    AccountStore.swift      recent sign-ins across backends
     BriefCache.swift        on-disk brief cache
   Views/
     RootView.swift          split-view navigation
-    LoginView.swift         server address + credentials
+    LoginView.swift         server address, credentials, recent sign-ins
     BriefsView.swift        brief list, sorting
     BriefReaderView.swift   PDFKit reader + markup flow
     MarkupView.swift        QuickLook markup editor

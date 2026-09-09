@@ -67,9 +67,17 @@ final class AppModel {
         guard let url = serverURL else { throw VistaError.notConfigured }
         let (token, _) = try await client.login(baseURL: url, email: email, password: password)
         Keychain.set(token, for: Self.tokenAccount)
+        // Remember the sign-in only once it has actually worked, so a typo
+        // never lands in the history.
+        AccountStore.shared.record(email: email,
+                                   serverAddress: serverAddress.trimmingCharacters(in: .whitespaces),
+                                   password: password)
         phase = .signedIn(try await client.me())
     }
 
+    /// Ends the session but keeps the saved-account list: signing out is how
+    /// you get back to the picker to switch backends. Cached briefs go,
+    /// because the next server's briefs are not these.
     func signOut() {
         Keychain.set(nil, for: Self.tokenAccount)
         Task { await client.setToken(nil) }
