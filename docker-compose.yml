@@ -1,0 +1,44 @@
+# Vista — everything runs in containers; nothing is installed on the host.
+#
+#   docker compose up vista            # API on http://127.0.0.1:8800
+#   docker compose up web              # web client on http://127.0.0.1:5173
+#   docker compose run --rm vista python -m vista users add you@example.com
+#
+# Integration testing against a throwaway Ark server lives in
+# docker-compose.test.yml.
+
+services:
+  vista:
+    build:
+      context: ./server
+      dockerfile: Dockerfile.dev
+    container_name: vista
+    volumes:
+      - ./server/vista:/app/vista
+      - ./server/tests:/app/tests
+      - vista-data:/data
+    environment:
+      # Generate with: docker compose run --rm vista python -m vista secret
+      VISTA_SECRET_KEY: ${VISTA_SECRET_KEY:?set VISTA_SECRET_KEY in .env}
+      VISTA_HOME: /data
+      VISTA_CORS_ORIGINS: ${VISTA_CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+    ports:
+      - "127.0.0.1:${VISTA_API_PORT:-8800}:8800"
+    stdin_open: true
+    tty: true
+
+  web:
+    build:
+      context: ./web
+    container_name: vista-web
+    volumes:
+      - ./web/src:/app/src
+      - ./web/index.html:/app/index.html
+      - ./web/vite.config.ts:/app/vite.config.ts
+    environment:
+      VITE_API_BASE: ${VITE_API_BASE:-http://127.0.0.1:8800}
+    ports:
+      - "127.0.0.1:${VISTA_WEB_PORT:-5173}:5173"
+
+volumes:
+  vista-data:

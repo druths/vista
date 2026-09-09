@@ -1,0 +1,18 @@
+# Same image as production plus the test runner. Used by docker-compose for
+# running the suite and the reload server without touching the host.
+FROM python:3.13-slim
+
+WORKDIR /app
+
+COPY requirements.txt requirements-dev.txt ./
+RUN pip install --no-cache-dir -r requirements-dev.txt
+
+# pytest reads its config from the rootdir, which is /app when the suite runs.
+COPY pytest.ini ./
+
+ENV VISTA_HOME=/data
+ENV PYTHONUNBUFFERED=1
+
+EXPOSE 8800
+
+CMD ["python", "-m", "vista", "serve", "--host", "0.0.0.0", "--port", "8800", "--reload"]

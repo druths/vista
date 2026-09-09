@@ -1,0 +1,19 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 7777,
+    "auth_secret": "test-ark-secret-for-vista"
+  },
+  "providers": {
+    "anthropic": {
+      "provider_type": "anthropic",
+      "api_key": "sk-ant-not-a-real-key-tests-never-call-a-model"
+    }
+  },
+  "agents": {
+    "scribe": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-6"
+    }
+  }
+}

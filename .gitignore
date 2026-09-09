@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Vista runtime state
+.vista-home/
+*.db
+*.db-shm
+*.db-wal
+.env
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# OS
+.DS_Store
+
+# Throwaway Ark home for integration tests — keep only the config
+.test-ark-home/*
+!.test-ark-home/config.json

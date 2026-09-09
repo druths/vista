@@ -1,0 +1,58 @@
+# Integration stack: Vista wired to a throwaway Ark server, both containerized.
+#
+#   docker compose -f docker-compose.test.yml up --build -d ark-test
+#   docker compose -f docker-compose.test.yml run --rm tests
+#   docker compose -f docker-compose.test.yml down -v
+#
+# The Ark image is built from a sibling checkout of the ark repo. Override the
+# location with ARK_REPO if yours lives elsewhere.
+
+services:
+  ark-test:
+    build:
+      context: ${ARK_REPO:-../ark}
+    container_name: vista-ark-test
+    volumes:
+      # Ark's image installs dependencies but expects its source bind-mounted
+      # (that's how its own compose file works). Read-only so a test can never
+      # write into the ark checkout.
+      - ${ARK_REPO:-../ark}:/app:ro
+      - ./.test-ark-home:/root/.ark
+    ports:
+      - "127.0.0.1:7911:7777"
+    healthcheck:
+      # Ark authenticates every route, so the probe must carry the bearer token.
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import urllib.request
+          req = urllib.request.Request(
+              "http://127.0.0.1:7777/agents",
+              headers={"Authorization": "Bearer test-ark-secret-for-vista"},
+          )
+          urllib.request.urlopen(req).read()
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  tests:
+    build:
+      context: ./server
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./server/vista:/app/vista
+      - ./server/tests:/app/tests
+      - ./server/pytest.ini:/app/pytest.ini
+    environment:
+      VISTA_SECRET_KEY: test-secret-key-not-for-production
+      VISTA_HOME: /tmp/vista-test
+      # Points the integration tests at the containerized Ark above.
+      VISTA_TEST_ARK_URL: http://ark-test:7777
+      VISTA_TEST_ARK_TOKEN: test-ark-secret-for-vista
+      VISTA_TEST_ARK_AGENT: scribe
+    depends_on:
+      ark-test:
+        condition: service_healthy
+    command: ["python", "-m", "pytest", "-q", "tests"]
