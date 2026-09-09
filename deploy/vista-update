@@ -1,0 +1,69 @@
+#!/bin/bash
+# Pull the latest Vista and redeploy. Installed on hub at
+# /usr/local/bin/vista-update; the copy in the repo is the source.
+set -euo pipefail
+
+VISTA_DIR="${VISTA_DIR:-/opt/vista}"
+COMPOSE_FILE="docker-compose.prod.yml"
+
+log() { echo "[vista-update] $*"; }
+err() { echo "[vista-update] ERROR: $*" >&2; exit 1; }
+
+cd "$VISTA_DIR" || err "cannot cd to $VISTA_DIR"
+[ -f .env ] || err "no .env in $VISTA_DIR — VISTA_SECRET_KEY must be set there"
+
+log "Checking for updates..."
+git fetch origin main
+LOCAL=$(git rev-parse HEAD)
+REMOTE=$(git rev-parse origin/main)
+
+if [ "$LOCAL" = "$REMOTE" ]; then
+  log "Already at $(git rev-parse --short HEAD). Nothing to deploy."
+  # Still make sure the stack is actually up — an update is also how you
+  # recover after a reboot or a crash.
+  docker compose -f "$COMPOSE_FILE" up -d
+  docker compose -f "$COMPOSE_FILE" ps
+  exit 0
+fi
+
+log "Incoming:"
+git --no-pager log --oneline "$LOCAL".."$REMOTE"
+git pull --ff-only origin main
+
+CHANGED=$(git diff --name-only "$LOCAL" "$REMOTE")
+
+# Rebuild only what actually changed. The compose file and .env affect both.
+BUILD=""
+if echo "$CHANGED" | grep -qE '^server/|^docker-compose\.prod\.yml$'; then
+  BUILD="$BUILD api"
+fi
+if echo "$CHANGED" | grep -qE '^web/|^docker-compose\.prod\.yml$'; then
+  BUILD="$BUILD web"
+fi
+
+if [ -n "$BUILD" ]; then
+  log "Building:$BUILD"
+  # shellcheck disable=SC2086
+  docker compose -f "$COMPOSE_FILE" build $BUILD
+else
+  log "No server or web changes — skipping build."
+fi
+
+log "Starting services..."
+# Recreate only what was rebuilt; leave the rest running.
+# shellcheck disable=SC2086
+docker compose -f "$COMPOSE_FILE" up -d ${BUILD:+--force-recreate $BUILD}
+
+log "Waiting for the API..."
+API_PORT=$(grep -E '^VISTA_API_PORT=' .env | cut -d= -f2- || true)
+API_PORT="${API_PORT:-5191}"
+for _ in $(seq 1 30); do
+  if curl -fsS -m 2 "http://127.0.0.1:${API_PORT}/api/health" >/dev/null 2>&1; then
+    log "API healthy: $(curl -fsS -m 2 "http://127.0.0.1:${API_PORT}/api/health")"
+    break
+  fi
+  sleep 1
+done
+
+docker compose -f "$COMPOSE_FILE" ps
+log "Deployed $(git rev-parse --short HEAD)."

@@ -1,0 +1,42 @@
+# Production stack, as deployed to hub at /opt/vista.
+#
+#   vista-update            # pull, rebuild what changed, restart
+#   docker compose -f docker-compose.prod.yml ps
+#
+# Differs from the dev stack: images are built rather than bind-mounted, both
+# services restart on their own, and there is no throwaway Ark server — this
+# talks to the real one configured per account.
+
+services:
+  api:
+    build:
+      context: ./server
+    environment:
+      # Signs sessions and derives the key encrypting stored Ark tokens.
+      # Losing it means every account has to re-enter its Ark token.
+      VISTA_SECRET_KEY: ${VISTA_SECRET_KEY:?set VISTA_SECRET_KEY in .env}
+      VISTA_HOME: /data
+      VISTA_CORS_ORIGINS: ${VISTA_CORS_ORIGINS:?set VISTA_CORS_ORIGINS in .env}
+    volumes:
+      # Accounts and encrypted Ark tokens. The only state worth backing up.
+      - vista-data:/data
+    ports:
+      - "${VISTA_API_PORT:-5191}:8800"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./web
+      target: prod
+      args:
+        # The client works out the API host from whatever address served the
+        # page, so it only needs to be told the port the API is published on.
+        VITE_API_PORT: ${VISTA_API_PORT:-5191}
+    ports:
+      - "${VISTA_WEB_PORT:-5190}:5173"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  vista-data:
