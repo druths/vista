@@ -5,12 +5,29 @@
 	<key>UILaunchScreen</key>
 	<dict/>
 
-	<!-- A Vista server usually lives on a LAN or a development machine over
-	     plain http. This permits local networking without disabling App
-	     Transport Security for the public internet. -->
+	<!-- Vista connects to a self-hosted server whose address the user types in
+	     at sign-in, so it cannot be known at build time and cannot be listed
+	     under NSExceptionDomains.
+
+	     NSAllowsLocalNetworking is not enough: App Transport Security counts
+	     only single-label hostnames, .local names and link-local addresses as
+	     "local". A Tailscale peer is neither — 100.64.0.0/10 is carrier-grade
+	     NAT space and a MagicDNS name like host.tailnet.ts.net is an ordinary
+	     dotted name — so ATS blocked those connections outright.
+
+	     Note the two keys must not both be present: Apple documents
+	     NSAllowsArbitraryLoads as *ignored* on iOS 10+ whenever
+	     NSAllowsLocalNetworking appears alongside it, which would silently
+	     undo this.
+
+	     The practical security here comes from the transport underneath:
+	     Vista over Tailscale rides an authenticated, encrypted WireGuard
+	     tunnel, so "cleartext" HTTP is not cleartext on the wire. Exposing
+	     Vista beyond a private tunnel should mean putting TLS in front of it
+	     (see the deployment notes) rather than relying on this. -->
 	<key>NSAppTransportSecurity</key>
 	<dict>
-		<key>NSAllowsLocalNetworking</key>
+		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
 

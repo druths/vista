@@ -54,11 +54,37 @@ This is iOS-only. The web client has no server field to switch — its API base
 is a build-time `VITE_API_BASE` — which is the same reason Relay's web frontend
 has no saved-accounts list either.
 
-A Vista server on a LAN is usually plain HTTP, which App Transport Security
-blocks by default. `Vista-Info.plist` sets `NSAllowsLocalNetworking`, which
-permits cleartext to private/link-local addresses and `.local` names **without**
-disabling ATS for the public internet. iOS also prompts once for local network
-access; `NSLocalNetworkUsageDescription` supplies that prompt's text.
+### App Transport Security
+
+A self-hosted Vista server is usually plain HTTP, which ATS blocks. Because the
+address is typed in at sign-in, it can't be known at build time and so can't be
+listed under `NSExceptionDomains`. `Vista-Info.plist` therefore sets
+`NSAllowsArbitraryLoads`.
+
+`NSAllowsLocalNetworking` — the narrower key, and the first thing tried here —
+is not sufficient. ATS treats only single-label hostnames, `.local` names and
+link-local addresses as "local". A Tailscale peer is neither: `100.64.0.0/10`
+is carrier-grade NAT space, and a MagicDNS name like `host.tailnet.ts.net` (or
+`host.t.internal` on Headscale) is an ordinary dotted name. Connections to
+those were blocked outright.
+
+The two keys must not both be present. Apple documents `NSAllowsArbitraryLoads`
+as **ignored** on iOS 10+ whenever `NSAllowsLocalNetworking` appears alongside
+it, so leaving the old key in place would have silently undone the fix.
+
+What actually protects the traffic is the transport underneath: over Tailscale,
+Vista rides an authenticated, encrypted WireGuard tunnel, so "cleartext" HTTP
+isn't cleartext on the wire. If you ever expose Vista outside a private tunnel,
+put TLS in front of it rather than relying on this.
+
+Tailscale SaaS can issue a real certificate for a `*.ts.net` MagicDNS name
+(`tailscale cert` + `tailscale serve`), which would let ATS be re-enabled
+outright. That path isn't available on a Headscale tailnet with a custom
+MagicDNS suffix, which is why it isn't used here.
+
+iOS also prompts once for local network access when reaching a LAN address;
+`NSLocalNetworkUsageDescription` supplies that prompt's text. A Tailscale
+connection goes over the tunnel interface and generally doesn't trigger it.
 
 ## Markup is the real Apple Markup
 
