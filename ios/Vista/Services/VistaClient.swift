@@ -5,6 +5,7 @@ enum VistaError: LocalizedError {
     case unauthorized
     case server(Int, String)
     case transport(String)
+    case malformedResponse(String)
 
     var errorDescription: String? {
         switch self {
@@ -15,6 +16,8 @@ enum VistaError: LocalizedError {
         case let .server(_, detail):
             return detail
         case let .transport(detail):
+            return detail
+        case let .malformedResponse(detail):
             return detail
         }
     }
@@ -83,6 +86,40 @@ actor VistaClient {
 
     private static let encoder = JSONEncoder()
 
+    /// Decode, turning Foundation's opaque "the data couldn't be read because
+    /// it is missing" into something that names the offending field.
+    private static func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
+        do {
+            return try decoder.decode(type, from: data)
+        } catch let error as DecodingError {
+            throw VistaError.malformedResponse(describe(error))
+        }
+    }
+
+    private static func describe(_ error: DecodingError) -> String {
+        func path(_ context: DecodingError.Context) -> String {
+            context.codingPath.map(\.stringValue).joined(separator: ".")
+        }
+        switch error {
+        case let .keyNotFound(key, context):
+            let parent = path(context)
+            return "The server response is missing '\(key.stringValue)'"
+                + (parent.isEmpty ? "" : " in '\(parent)'")
+                + ". The Vista server may be an older version than this app."
+        case let .typeMismatch(_, context):
+            return "Unexpected type for '\(path(context))' in the server response."
+        case let .valueNotFound(_, context):
+            return "Missing value for '\(path(context))' in the server response."
+        case let .dataCorrupted(context):
+            let where_ = path(context)
+            return "Could not read the server response"
+                + (where_.isEmpty ? "" : " at '\(where_)'")
+                + ": \(context.debugDescription)"
+        @unknown default:
+            return "Could not read the server response."
+        }
+    }
+
     // MARK: - Plumbing
 
     private func makeRequest(_ path: String, method: String = "GET",
@@ -129,7 +166,7 @@ actor VistaClient {
 
     private func get<T: Decodable>(_ path: String, query: [URLQueryItem] = []) async throws -> T {
         let data = try await perform(try makeRequest(path, query: query))
-        return try Self.decoder.decode(T.self, from: data)
+        return try Self.decode(T.self, from: data)
     }
 
     @discardableResult
@@ -139,11 +176,13 @@ actor VistaClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try Self.encoder.encode(body)
         let data = try await perform(request)
-        return try Self.decoder.decode(T.self, from: data)
+        return try Self.decode(T.self, from: data)
     }
 
     // MARK: - Auth
 
+    /// Signs in and returns the session token together with the user, which
+    /// carries the same fields `me()` would — no follow-up request needed.
     func login(baseURL: URL, email: String, password: String) async throws -> (String, User) {
         self.baseURL = baseURL
         self.token = nil

@@ -178,6 +178,15 @@ def login(body: LoginRequest) -> dict[str, Any]:
 
 
 def _user_json(user: Principal) -> dict[str, Any]:
+    """The one representation of a user.
+
+    Login and /api/me must return the same shape: a client that models "user"
+    once should be able to decode it from either. They diverged before —
+    briefings appeared only on /api/me — and a strictly-typed client failed to
+    decode a login response over it.
+    """
+    with db.session() as conn:
+        briefings = db.list_briefings(conn, user.id)
     return {
         "id": user.id,
         "email": user.email,
@@ -185,19 +194,15 @@ def _user_json(user: Principal) -> dict[str, Any]:
         "configured": user.configured,
         "ark_agent": user.row["ark_agent"] or None,
         "notes_dir": user.notes_dir,
+        "briefings": [
+            {"id": b["id"], "name": b["name"], "path": b["path"]} for b in briefings
+        ],
     }
 
 
 @app.get("/api/me")
 def me(user: User) -> dict[str, Any]:
-    with db.session() as conn:
-        briefings = db.list_briefings(conn, user.id)
-    return {
-        **_user_json(user),
-        "briefings": [
-            {"id": b["id"], "name": b["name"], "path": b["path"]} for b in briefings
-        ],
-    }
+    return _user_json(user)
 
 
 @app.get("/api/health")

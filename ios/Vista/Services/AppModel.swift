@@ -65,14 +65,15 @@ final class AppModel {
 
     func signIn(email: String, password: String) async throws {
         guard let url = serverURL else { throw VistaError.notConfigured }
-        let (token, _) = try await client.login(baseURL: url, email: email, password: password)
+        let (token, user) = try await client.login(baseURL: url, email: email, password: password)
         Keychain.set(token, for: Self.tokenAccount)
         // Remember the sign-in only once it has actually worked, so a typo
         // never lands in the history.
         AccountStore.shared.record(email: email,
                                    serverAddress: serverAddress.trimmingCharacters(in: .whitespaces),
                                    password: password)
-        phase = .signedIn(try await client.me())
+        // The login response already carries the full user.
+        phase = .signedIn(user)
     }
 
     /// Ends the session but keeps the saved-account list: signing out is how

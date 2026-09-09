@@ -122,7 +122,9 @@ export async function login(email: string, password: string): Promise<User> {
     body: JSON.stringify({ email, password }),
   });
   setToken(body.token);
-  return me();
+  // The login response carries the same user `me()` would, briefings included,
+  // so there is no reason to ask again.
+  return body.user;
 }
 
 export function logout(): void {

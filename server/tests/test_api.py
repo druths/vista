@@ -501,3 +501,29 @@ def test_workspace_browser_lists_directories(api) -> None:
 def test_workspace_browser_refuses_traversal(api) -> None:
     client, _ = api
     assert client.get("/api/settings/workspace", params={"path": "../.."}).status_code == 400
+
+
+def test_login_and_me_return_the_same_user_shape(api) -> None:
+    """A client models "user" once and decodes it from either response.
+
+    These drifted apart once — briefings were only on /api/me — and a
+    strictly-typed client couldn't decode the login response at all.
+    """
+    client, account = api
+    from_me = client.get("/api/me").json()
+    logged_in = client.post(
+        "/api/auth/login", json={"email": account["email"], "password": PASSWORD}
+    ).json()["user"]
+
+    assert set(logged_in) == set(from_me)
+    assert logged_in == from_me
+
+
+def test_login_user_carries_briefings(api) -> None:
+    """The specific key whose absence broke the iOS client."""
+    client, account = api
+    body = client.post(
+        "/api/auth/login", json={"email": account["email"], "password": PASSWORD}
+    ).json()
+
+    assert [b["name"] for b in body["user"]["briefings"]] == ["Policy Briefs"]
