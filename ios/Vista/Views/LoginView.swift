@@ -6,6 +6,9 @@ struct LoginView: View {
     @State private var password = ""
     @State private var error = ""
     @State private var busy = false
+    /// Held so the attempt can be called off; an unreachable server would
+    /// otherwise leave the user watching a spinner.
+    @State private var attempt: Task<Void, Never>?
     @State private var accounts: [SavedAccount] = []
     @State private var selectedAccountID: UUID?
     /// Set while `select` writes the form, so its own field changes aren't
@@ -60,7 +63,7 @@ struct LoginView: View {
                     SecureField("Password", text: $password)
                         .textContentType(.password)
                         .focused($focus, equals: .password)
-                        .onSubmit { Task { await signIn() } }
+                        .onSubmit { start() }
                 }
 
                 if !error.isEmpty {
@@ -69,15 +72,25 @@ struct LoginView: View {
 
                 Section {
                     Button {
-                        Task { await signIn() }
+                        if busy { cancel() } else { start() }
                     } label: {
-                        HStack {
+                        HStack(spacing: 8) {
                             Spacer()
-                            if busy { ProgressView() } else { Text("Sign in").bold() }
+                            if busy {
+                                ProgressView()
+                                Text("Cancel")
+                            } else {
+                                Text("Sign in").bold()
+                            }
                             Spacer()
                         }
                     }
-                    .disabled(busy || !canSubmit)
+                    // Stays tappable while busy — that is what makes it a way out.
+                    .disabled(!busy && !canSubmit)
+                } footer: {
+                    if busy, let host = model.serverURL?.host {
+                        Text("Contacting \(host)…")
+                    }
                 }
 
                 if !accounts.isEmpty {
@@ -87,6 +100,7 @@ struct LoginView: View {
             .navigationTitle("Vista")
         }
         .task { restoreRecent() }
+        .onDisappear { attempt?.cancel() }
     }
 
     // MARK: - Recent sign-ins
@@ -186,16 +200,28 @@ struct LoginView: View {
         if selectedAccountID == account.id { selectedAccountID = nil }
     }
 
-    private func signIn() async {
-        guard canSubmit else { return }
+    private func start() {
+        guard canSubmit, attempt == nil else { return }
         busy = true
         error = ""
-        do {
-            try await model.signIn(email: email, password: password)
-        } catch {
-            self.error = error.localizedDescription
-            accounts = AccountStore.shared.accounts
+        attempt = Task {
+            do {
+                try await model.signIn(email: email, password: password)
+            } catch {
+                // Calling it off is not a failure worth reporting.
+                if !AppModel.isCancellation(error) {
+                    self.error = error.localizedDescription
+                    accounts = AccountStore.shared.accounts
+                }
+            }
+            attempt = nil
+            busy = false
         }
+    }
+
+    private func cancel() {
+        attempt?.cancel()
+        attempt = nil
         busy = false
     }
 }

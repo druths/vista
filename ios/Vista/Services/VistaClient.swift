@@ -31,8 +31,15 @@ actor VistaClient {
 
     init() {
         let config = URLSessionConfiguration.default
+        // Wait out a brief connectivity gap rather than failing instantly on a
+        // phone that is switching networks.
         config.waitsForConnectivity = true
         config.timeoutIntervalForRequest = 30
+        // ...but bound the wait. `timeoutIntervalForRequest` does not apply
+        // while URLSession is waiting for connectivity, and the resource
+        // timeout defaults to seven days, so an unreachable server left a
+        // sign-in spinning with no way out.
+        config.timeoutIntervalForResource = 60
         session = URLSession(configuration: config)
     }
 
