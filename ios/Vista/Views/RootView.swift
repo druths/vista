@@ -1,10 +1,6 @@
 import SwiftUI
 
 /// Top-level navigation.
-///
-/// `NavigationSplitView` gives the sidebar-and-detail layout that suits an
-/// iPad and collapses to a push-navigation stack on iPhone, so one structure
-/// serves both without branching on size class.
 struct RootView: View {
     @Environment(AppModel.self) private var model
     @AppStorage(Appearance.storageKey) private var appearance: Appearance = .system
@@ -34,89 +30,100 @@ struct RootView: View {
     }
 }
 
+/// Tabs, each owning its own navigation stack.
+///
+/// This was a `NavigationSplitView` whose detail column held one long-lived
+/// `NavigationStack` with its root swapped by a `switch` on the selection.
+/// That combination misbehaved once anything had been pushed and popped: a
+/// later selection change never rebuilt the detail, so the destination's view
+/// never appeared, never ran its `.task`, and never loaded — the screen sat
+/// empty with no request made at all.
+///
+/// Tabs remove the whole class of problem. Each tab is a separate stack that
+/// owns its own state, nothing swaps a stack's root, and there is no collapsed
+/// / expanded split-view behaviour to reason about. Briefings become a list
+/// inside the Briefs tab rather than sidebar entries.
 private struct SignedInView: View {
     let user: User
     @Environment(AppModel.self) private var model
 
-    enum Destination: Hashable {
-        case briefing(Briefing)
-        case notes
-        case settings
-    }
+    private enum Tabs: Hashable { case briefs, notes, settings }
 
-    @State private var selection: Destination?
+    @State private var tab: Tabs = .briefs
 
     var body: some View {
-        NavigationSplitView {
-            List(selection: $selection) {
-                if !user.briefings.isEmpty {
-                    Section("Briefs") {
-                        ForEach(user.briefings) { briefing in
-                            NavigationLink(value: Destination.briefing(briefing)) {
-                                Label(briefing.name, systemImage: "doc.richtext")
-                            }
-                        }
-                    }
-                }
-
-                Section {
-                    NavigationLink(value: Destination.notes) {
-                        Label("Notes", systemImage: "note.text")
-                    }
-                    NavigationLink(value: Destination.settings) {
-                        Label("Settings", systemImage: "gearshape")
-                    }
-                }
-            }
-            .navigationTitle("Vista")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Text(user.email)
-                        Button("Sign out", role: .destructive) { model.signOut() }
-                    } label: {
-                        Image(systemName: "person.crop.circle")
-                    }
-                }
-            }
-        } detail: {
+        TabView(selection: $tab) {
             NavigationStack {
-                switch selection {
-                case let .briefing(briefing):
-                    BriefsView(briefing: briefing)
-                case .notes:
-                    NotesView()
-                case .settings:
-                    SettingsView()
-                case nil:
-                    placeholder
-                }
+                BriefingsListView(user: user)
             }
+            .tabItem { Label("Briefs", systemImage: "doc.richtext") }
+            .tag(Tabs.briefs)
+
+            NavigationStack {
+                NotesView()
+            }
+            .tabItem { Label("Notes", systemImage: "note.text") }
+            .tag(Tabs.notes)
+
+            NavigationStack {
+                SettingsView()
+            }
+            .tabItem { Label("Settings", systemImage: "gearshape") }
+            .tag(Tabs.settings)
         }
         .onAppear {
             // A brand-new account has nothing configured; Settings is the only
             // useful place to land.
-            if selection == nil {
-                selection = user.configured
-                    ? user.briefings.first.map(Destination.briefing) ?? .notes
-                    : .settings
-            }
+            if !user.configured { tab = .settings }
         }
     }
+}
 
-    @ViewBuilder
-    private var placeholder: some View {
-        if !user.configured {
-            ContentUnavailableView {
-                Label("Not connected", systemImage: "link.badge.plus")
-            } description: {
-                Text("Add your Ark server URL, agent, and token in Settings.")
-            } actions: {
-                Button("Open Settings") { selection = .settings }
+/// The Briefs tab: pick a briefing, then read its briefs.
+private struct BriefingsListView: View {
+    let user: User
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        List {
+            if user.briefings.isEmpty {
+                // Rendered inline rather than as an overlay so the list's own
+                // empty state doesn't fight it.
+                ContentUnavailableView {
+                    Label("No brief locations", systemImage: "folder.badge.questionmark")
+                } description: {
+                    Text(user.configured
+                         ? "Add one in Settings to start reading briefs."
+                         : "Connect an Ark server in Settings first.")
+                }
+                .listRowSeparator(.hidden)
+            } else {
+                ForEach(user.briefings) { briefing in
+                    NavigationLink(value: briefing) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(briefing.name)
+                            Text(briefing.path)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
             }
-        } else {
-            ContentUnavailableView("Nothing selected", systemImage: "sidebar.left",
-                                   description: Text("Pick a briefing or your notes."))
+        }
+        .navigationTitle("Briefs")
+        .navigationDestination(for: Briefing.self) { briefing in
+            BriefsView(briefing: briefing)
+        }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Text(user.email)
+                    Button("Sign out", role: .destructive) { model.signOut() }
+                } label: {
+                    Image(systemName: "person.crop.circle")
+                }
+            }
         }
     }
 }
