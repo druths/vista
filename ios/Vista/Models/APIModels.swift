@@ -113,11 +113,41 @@ struct NoteContent: Codable {
     let name: String
     let title: String
     let content: String
+    /// Hash of the content as read. Quoted back on write so the server can
+    /// refuse an edit made against a version that has since moved on.
+    let version: String?
 }
 
 struct CreatedNote: Codable {
     let name: String
     let title: String
+    let version: String?
+}
+
+struct NoteWriteAck: Codable {
+    let ok: Bool
+    let version: String?
+}
+
+/// The 409 body from a refused conditional write.
+struct NoteConflict: Codable {
+    let name: String
+    let version: String
+    /// What the server holds now. `nil` when the note is gone entirely.
+    let content: String?
+}
+
+/// Result of a conditional save.
+enum SaveOutcome {
+    case saved(version: String?)
+    case conflict(NoteConflict)
+}
+
+/// Result of a conditional delete. A refusal means the note changed on the
+/// server, so the edit wins and the note stays.
+enum DeleteOutcome {
+    case deleted
+    case conflict(NoteConflict)
 }
 
 // MARK: - Settings

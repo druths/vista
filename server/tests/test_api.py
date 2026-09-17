@@ -527,3 +527,121 @@ def test_login_user_carries_briefings(api) -> None:
     ).json()
 
     assert [b["name"] for b in body["user"]["briefings"]] == ["Policy Briefs"]
+
+
+# --- conditional writes ----------------------------------------------------
+
+
+def test_read_and_write_agree_on_version(api) -> None:
+    client, _ = api
+    created = client.post("/api/notes", json={"title": "Versioned", "content": "one"})
+    assert created.status_code == 201
+    name = created.json()["name"]
+
+    read = client.get("/api/notes/item", params={"name": name}).json()
+    assert read["version"] == created.json()["version"]
+
+    written = client.put(
+        "/api/notes/item", params={"name": name},
+        json={"content": "two", "if_version": read["version"]},
+    )
+    assert written.status_code == 200
+    # The version the write reports is the one a fresh read sees.
+    assert written.json()["version"] == client.get(
+        "/api/notes/item", params={"name": name}
+    ).json()["version"]
+
+
+def test_stale_write_is_refused_and_hands_back_the_current_note(api) -> None:
+    """The offline case: an edit made against a version that has moved on."""
+    client, _ = api
+    name = client.post("/api/notes", json={"title": "Racy", "content": "original"}).json()["name"]
+    stale = client.get("/api/notes/item", params={"name": name}).json()["version"]
+
+    # Someone else writes in the meantime.
+    client.put("/api/notes/item", params={"name": name}, json={"content": "theirs"})
+
+    refused = client.put(
+        "/api/notes/item", params={"name": name},
+        json={"content": "mine", "if_version": stale},
+    )
+    assert refused.status_code == 409
+    body = refused.json()
+    assert body["conflict"] is True
+    # Enough for a client to resolve without a second round trip.
+    assert body["content"] == "theirs"
+    assert body["version"] != stale
+
+    # And the server still holds their version, not ours.
+    assert client.get("/api/notes/item", params={"name": name}).json()["content"] == "theirs"
+
+
+def test_write_without_a_precondition_is_unconditional(api) -> None:
+    """The web client sends no version; it must keep working as before."""
+    client, _ = api
+    name = client.post("/api/notes", json={"title": "Blind", "content": "a"}).json()["name"]
+
+    assert client.put("/api/notes/item", params={"name": name}, json={"content": "b"}).status_code == 200
+    assert client.get("/api/notes/item", params={"name": name}).json()["content"] == "b"
+
+
+def test_precondition_against_a_vanished_note_conflicts(api) -> None:
+    """Renamed or deleted away while offline — recreating it silently would be
+    its own surprise."""
+    client, _ = api
+    name = client.post("/api/notes", json={"title": "Doomed", "content": "x"}).json()["name"]
+    version = client.get("/api/notes/item", params={"name": name}).json()["version"]
+    client.delete("/api/notes/item", params={"name": name})
+
+    refused = client.put(
+        "/api/notes/item", params={"name": name},
+        json={"content": "mine", "if_version": version},
+    )
+    assert refused.status_code == 409
+    assert refused.json()["content"] is None
+    assert client.get("/api/notes/item", params={"name": name}).status_code == 404
+
+
+def test_conditional_delete_removes_an_unchanged_note(api) -> None:
+    client, _ = api
+    name = client.post("/api/notes", json={"title": "Doomed", "content": "x"}).json()["name"]
+    version = client.get("/api/notes/item", params={"name": name}).json()["version"]
+
+    removed = client.delete("/api/notes/item", params={"name": name, "if_version": version})
+    assert removed.status_code == 200
+    assert client.get("/api/notes/item", params={"name": name}).status_code == 404
+
+
+def test_conditional_delete_yields_to_a_remote_edit(api) -> None:
+    """A delete queued offline must not discard an edit made meanwhile."""
+    client, _ = api
+    name = client.post("/api/notes", json={"title": "Contested", "content": "original"}).json()["name"]
+    stale = client.get("/api/notes/item", params={"name": name}).json()["version"]
+
+    client.put("/api/notes/item", params={"name": name}, json={"content": "their edit"})
+
+    refused = client.delete("/api/notes/item", params={"name": name, "if_version": stale})
+    assert refused.status_code == 409
+    assert refused.json()["conflict"] is True
+    assert refused.json()["content"] == "their edit"
+
+    # The note survives, holding their edit.
+    assert client.get("/api/notes/item", params={"name": name}).json()["content"] == "their edit"
+
+
+def test_conditional_delete_of_a_vanished_note_succeeds(api) -> None:
+    """Deleting something already deleted is the outcome the caller wanted."""
+    client, _ = api
+    name = client.post("/api/notes", json={"title": "Twice", "content": "x"}).json()["name"]
+    version = client.get("/api/notes/item", params={"name": name}).json()["version"]
+    client.delete("/api/notes/item", params={"name": name})
+
+    again = client.delete("/api/notes/item", params={"name": name, "if_version": version})
+    assert again.status_code == 200
+    assert again.json()["already_gone"] is True
+
+
+def test_unconditional_delete_still_works(api) -> None:
+    client, _ = api
+    name = client.post("/api/notes", json={"title": "Blunt", "content": "x"}).json()["name"]
+    assert client.delete("/api/notes/item", params={"name": name}).status_code == 200

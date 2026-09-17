@@ -9,6 +9,7 @@ a file the agent writes is immediately a note.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -39,6 +40,18 @@ def slugify(title: str) -> str:
     if not cleaned:
         cleaned = datetime.now().strftime("Note %Y-%m-%d %H%M%S")
     return cleaned[:120]
+
+
+def version_of(content: bytes | str) -> str:
+    """A short content hash, used as a write precondition.
+
+    Content rather than mtime: mtimes come from whatever machine wrote the
+    file, and a clock that disagrees would either wave through a stale write
+    or reject a good one. A hash only says "this is what I read", which is
+    exactly what a client needs to claim.
+    """
+    raw = content.encode("utf-8") if isinstance(content, str) else content
+    return hashlib.sha256(raw).hexdigest()[:16]
 
 
 def is_note(filename: str) -> bool:

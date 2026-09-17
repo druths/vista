@@ -280,11 +280,36 @@ actor VistaClient {
                               body: Body(title: title, content: content))
     }
 
-    func saveNote(name: String, content: String) async throws {
-        struct Body: Encodable { let content: String }
-        struct Ack: Decodable { let ok: Bool }
-        let _: Ack = try await send("api/notes/item", method: "PUT", body: Body(content: content),
-                                    query: [.init(name: "name", value: name)])
+    /// Write a note, optionally only if the server still holds `ifVersion`.
+    ///
+    /// A refusal is an expected outcome here rather than an error, so it comes
+    /// back as a value: the caller has to decide what to do with the losing
+    /// copy, and an exception would push that decision into a catch block.
+    @discardableResult
+    func saveNote(name: String, content: String, ifVersion: String? = nil) async throws -> SaveOutcome {
+        struct Body: Encodable {
+            let content: String
+            let if_version: String?
+        }
+
+        var request = try makeRequest("api/notes/item", method: "PUT",
+                                      query: [.init(name: "name", value: name)])
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try Self.encoder.encode(Body(content: content, if_version: ifVersion))
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw Self.mapTransport(error)
+        }
+
+        if let http = response as? HTTPURLResponse, http.statusCode == 409 {
+            return .conflict(try Self.decode(NoteConflict.self, from: data))
+        }
+        try Self.check(response: response, data: data)
+        return .saved(version: try Self.decode(NoteWriteAck.self, from: data).version)
     }
 
     func renameNote(name: String, title: String) async throws -> CreatedNote {
@@ -293,10 +318,29 @@ actor VistaClient {
                               query: [.init(name: "name", value: name)])
     }
 
-    func deleteNote(name: String) async throws {
-        let request = try makeRequest("api/notes/item", method: "DELETE",
-                                      query: [.init(name: "name", value: name)])
-        _ = try await perform(request)
+    /// Delete a note, optionally only if the server still holds `ifVersion`.
+    ///
+    /// As with saving, a refusal is a value rather than an error: the caller
+    /// has to decide what to do with the delete it queued.
+    @discardableResult
+    func deleteNote(name: String, ifVersion: String? = nil) async throws -> DeleteOutcome {
+        var query = [URLQueryItem(name: "name", value: name)]
+        if let ifVersion { query.append(.init(name: "if_version", value: ifVersion)) }
+        let request = try makeRequest("api/notes/item", method: "DELETE", query: query)
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw Self.mapTransport(error)
+        }
+
+        if let http = response as? HTTPURLResponse, http.statusCode == 409 {
+            return .conflict(try Self.decode(NoteConflict.self, from: data))
+        }
+        try Self.check(response: response, data: data)
+        return .deleted
     }
 
     // MARK: - Settings

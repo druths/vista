@@ -84,6 +84,9 @@ class NoteCreate(BaseModel):
 
 class NoteUpdate(BaseModel):
     content: str
+    # The version the client last read. Sent, the write is refused if the note
+    # has changed since; omitted, the write is unconditional as before.
+    if_version: str | None = None
 
 
 class NoteRename(BaseModel):
@@ -522,6 +525,7 @@ async def create_note(user: User, body: NoteCreate) -> dict[str, Any]:
         "title": PurePosixPath(name).stem,
         "path": path,
         "content": body.content,
+        "version": notes_mod.version_of(body.content),
     }
 
 
@@ -529,25 +533,99 @@ async def create_note(user: User, body: NoteCreate) -> dict[str, Any]:
 async def read_note(user: User, name: str = Query(...)) -> dict[str, Any]:
     path = _note_path(name, user)
     raw = await user.client().read_file(path)
+    text = raw.decode("utf-8", errors="replace")
     return {
         "name": name,
         "title": PurePosixPath(name).stem,
         "path": path,
-        "content": raw.decode("utf-8", errors="replace"),
+        "content": text,
+        "version": notes_mod.version_of(raw),
     }
 
 
 @app.put("/api/notes/item")
-async def write_note(user: User, body: NoteUpdate, name: str = Query(...)) -> dict[str, Any]:
+async def write_note(user: User, body: NoteUpdate, name: str = Query(...)) -> Any:
+    """Write a note, optionally only if it hasn't changed underneath.
+
+    Ark has no compare-and-swap, so this reads the note back and compares
+    hashes before writing. That leaves a small window where a third writer
+    could slip in between, but it turns the common case — an offline edit
+    landing on a note that moved on — from silent data loss into a 409 the
+    client can resolve.
+    """
     path = _note_path(name, user)
-    result = await user.client().write_file(path, body.content.encode("utf-8"))
-    return {"ok": True, "name": name, "path": path, "size": result.get("size")}
+    client = user.client()
+
+    if body.if_version is not None:
+        try:
+            current = await client.read_file(path)
+        except ark.NotFound:
+            current = None
+        # A missing note is a mismatch too: it was deleted or renamed away,
+        # and recreating it silently would be its own surprise.
+        current_version = notes_mod.version_of(current) if current is not None else ""
+        if current_version != body.if_version:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "detail": "This note changed on the server since you last opened it.",
+                    "conflict": True,
+                    "name": name,
+                    "version": current_version,
+                    "content": (
+                        current.decode("utf-8", errors="replace")
+                        if current is not None
+                        else None
+                    ),
+                },
+            )
+
+    result = await client.write_file(path, body.content.encode("utf-8"))
+    return {
+        "ok": True,
+        "name": name,
+        "path": path,
+        "size": result.get("size"),
+        "version": notes_mod.version_of(body.content),
+    }
 
 
 @app.delete("/api/notes/item")
-async def delete_note(user: User, name: str = Query(...)) -> dict[str, Any]:
+async def delete_note(
+    user: User,
+    name: str = Query(...),
+    if_version: str | None = Query(None),
+) -> Any:
+    """Delete a note, optionally only if it hasn't changed underneath.
+
+    Same precondition as the conditional write, and for the same reason: a
+    delete queued offline shouldn't quietly discard an edit someone made in
+    the meantime. When the versions disagree the edit wins — the note stays,
+    and the caller is told what it now holds.
+    """
     path = _note_path(name, user)
-    await user.client().delete(path)
+    client = user.client()
+
+    if if_version is not None:
+        try:
+            current = await client.read_file(path)
+        except ark.NotFound:
+            # Already gone: the delete got what it wanted.
+            return {"ok": True, "name": name, "already_gone": True}
+        current_version = notes_mod.version_of(current)
+        if current_version != if_version:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "detail": "This note changed on the server, so it was not deleted.",
+                    "conflict": True,
+                    "name": name,
+                    "version": current_version,
+                    "content": current.decode("utf-8", errors="replace"),
+                },
+            )
+
+    await client.delete(path)
     return {"ok": True, "name": name}
 
 
@@ -558,7 +636,8 @@ async def rename_note(user: User, body: NoteRename, name: str = Query(...)) -> d
     new_name = await notes_mod.unique_name(client, user.notes_dir, body.title)
     dest = notes_mod.resolve_name(new_name, user.notes_dir)
     if dest == source:
-        return {"ok": True, "name": name, "path": source}
+        # Same shape as the branch below; a client decodes one type, not two.
+        return {"ok": True, "name": name, "title": PurePosixPath(name).stem, "path": source}
     await client.rename(source, dest)
     return {"ok": True, "name": new_name, "title": PurePosixPath(new_name).stem, "path": dest}
 

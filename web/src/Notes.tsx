@@ -58,7 +58,9 @@ export function NotesScreen({ onError }: { onError: (message: string) => void })
       <div className="topbar">
         <h1>Notes</h1>
         <span className="row-meta">
-          {loading ? "Loading…" : `${notes.length} note${notes.length === 1 ? "" : "s"}`}
+          {loading && notes.length === 0
+            ? "Loading…"
+            : `${notes.length} note${notes.length === 1 ? "" : "s"}`}
         </span>
         <div className="spacer" />
         <SortControls
@@ -76,7 +78,7 @@ export function NotesScreen({ onError }: { onError: (message: string) => void })
 
       <div className="content">
         <div className={`note-list scroll ${openName ? "hidden" : ""}`}>
-          {loading ? (
+          {loading && notes.length === 0 ? (
             <div className="empty">Loading…</div>
           ) : notes.length === 0 ? (
             <div className="empty">

@@ -16,6 +16,9 @@ final class AppModel {
     var errorMessage: String?
 
     let client = VistaClient()
+    /// Notes live in an offline-capable cache; the store owns reading, writing
+    /// and syncing them.
+    let notes: NoteStore
 
     /// The Vista server address. A web build can bake this in at compile time;
     /// an installed app has to be told, so it is asked for at sign-in and kept
@@ -33,6 +36,7 @@ final class AppModel {
     }
 
     init() {
+        notes = NoteStore(client: client)
         serverAddress = UserDefaults.standard.string(forKey: Self.serverKey) ?? ""
     }
 
@@ -53,7 +57,9 @@ final class AppModel {
         }
         await client.configure(baseURL: url, token: token)
         do {
-            phase = .signedIn(try await client.me())
+            let user = try await client.me()
+            notes.open(accountKey: "\(serverAddress)|\(user.email)")
+            phase = .signedIn(user)
         } catch {
             // An expired or rejected session just means "sign in again"; it is
             // not worth an error banner on a cold launch.
@@ -72,6 +78,7 @@ final class AppModel {
         AccountStore.shared.record(email: email,
                                    serverAddress: serverAddress.trimmingCharacters(in: .whitespaces),
                                    password: password)
+        notes.open(accountKey: "\(serverAddress)|\(user.email)")
         // The login response already carries the full user.
         phase = .signedIn(user)
     }
@@ -80,6 +87,8 @@ final class AppModel {
     /// you get back to the picker to switch backends. Cached briefs go,
     /// because the next server's briefs are not these.
     func signOut() {
+        // The cache stays on disk: an unsynced edit must survive a sign out.
+        notes.close()
         Keychain.set(nil, for: Self.tokenAccount)
         Task { await client.setToken(nil) }
         BriefCache.clear()
