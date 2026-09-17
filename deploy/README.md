@@ -76,8 +76,10 @@ so the web image rebuilds when it changes.
 Plain HTTP over the tailnet, matching how relay runs here. Two consequences
 worth knowing:
 
-- Chrome will not offer to **install the web client** as an app except from
-  `localhost` or over HTTPS.
+- Chrome's address-bar install icon doesn't appear over plain HTTP. Install
+  from the menu instead (⋮ → *Cast, save, and share* → *Install page as
+  app…*), as with relay. The service worker can't register without HTTPS, so
+  there's no offline shell.
 - The iOS app disables App Transport Security to allow it.
 
 Both would be fixed by a certificate for a name hub answers to; the traffic is

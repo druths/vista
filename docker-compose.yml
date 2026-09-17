@@ -50,9 +50,10 @@ services:
     ports:
       - "${VISTA_BIND:-127.0.0.1}:${VISTA_WEB_PORT:-5173}:5173"
 
-  # The installable build: a static bundle over nginx. Chrome only offers to
-  # install a site served from a secure context, which means HTTPS or
-  # localhost — over plain HTTP to a LAN or VPN address it will not.
+  # The installable build: a static bundle over nginx. Over plain HTTP, Chrome
+  # installs it from the menu (Install page as app) but shows no address-bar
+  # install icon and can't register the service worker; both need HTTPS or
+  # localhost.
   #   docker compose up --build web-prod   ->   http://127.0.0.1:5180
   web-prod:
     build:

@@ -53,26 +53,26 @@ where it would serve stale modules.
 docker compose --profile prod up --build web-prod   # http://127.0.0.1:5180
 ```
 
-Open that in Chrome and use the install button in the address bar. Add the
-origin you load it from to `VISTA_CORS_ORIGINS`, same as the dev server.
+Open that in Chrome and install it. Add the origin you load it from to
+`VISTA_CORS_ORIGINS`, same as the dev server.
 
-**Chrome only offers to install from a secure context — HTTPS, or
-`localhost`.** Over plain HTTP to a LAN or Tailscale address it will not:
-`navigator.serviceWorker` is not merely blocked there, it does not exist. So:
+Chrome has two ways to install, with different rules:
 
-| How you reach it | Installable |
-|---|---|
-| `http://127.0.0.1:5180` on the machine itself | yes |
-| `http://<lan-or-tailscale-address>:5180` | no |
-| `https://…` with a trusted certificate | yes |
+| | Plain HTTP (LAN, Tailscale) | HTTPS or `localhost` |
+|---|---|---|
+| Install icon in the address bar, automatic prompt | not offered | offered |
+| ⋮ → *Cast, save, and share* → *Install page as app…* | works | works |
+| Service worker (offline shell) | unavailable | registers |
 
-To install from another device you need real TLS. Tailscale's own
-`tailscale cert` covers a `*.ts.net` MagicDNS name, but not a Headscale tailnet
-with a custom suffix; the alternative is a certificate for a domain you control
-(DNS-01) with a reverse proxy in front of Vista. Chrome can also be told to
-trust one insecure origin via
-`--unsafely-treat-insecure-origin-as-secure=http://host:5180`, which is
-per-device and per-flag rather than a real fix.
+So over the tailnet, install from the menu — that's how Relay is installed on
+hub. You get the standalone window, name and icon. What plain HTTP costs is
+the service worker: `navigator.serviceWorker` doesn't exist outside a secure
+context, so there's no offline shell and no address-bar icon.
+
+Getting those back needs real TLS. Tailscale's own `tailscale cert` covers a
+`*.ts.net` MagicDNS name, but not a Headscale tailnet with a custom suffix; the
+alternative is a certificate for a domain you control (DNS-01) with a reverse
+proxy in front of Vista.
 
 The service worker deliberately never touches `/api/` — caching it would show
 stale briefs and could serve one account's data to another. It caches only the
