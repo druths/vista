@@ -37,6 +37,14 @@ CREATE TABLE IF NOT EXISTS briefings (
 );
 
 CREATE INDEX IF NOT EXISTS idx_briefings_user ON briefings(user_id);
+
+-- Starred notes, keyed by filename. Stars follow a rename and are dropped
+-- with the note, so this never accumulates orphans.
+CREATE TABLE IF NOT EXISTS starred_notes (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name    TEXT NOT NULL,
+    PRIMARY KEY (user_id, name)
+);
 """
 
 
@@ -152,6 +160,43 @@ def set_password(conn: sqlite3.Connection, user_id: int, password_hash: str) -> 
 
 def delete_user(conn: sqlite3.Connection, user_id: int) -> None:
     conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+
+
+# --- starred notes ---------------------------------------------------------
+
+
+def list_starred(conn: sqlite3.Connection, user_id: int) -> list[str]:
+    rows = conn.execute(
+        "SELECT name FROM starred_notes WHERE user_id = ? ORDER BY name", (user_id,)
+    ).fetchall()
+    return [row["name"] for row in rows]
+
+
+def set_starred(conn: sqlite3.Connection, user_id: int, names: list[str]) -> None:
+    """Replace the whole set.
+
+    Wholesale rather than per-note so a client that starred something offline
+    can reconcile in one call, without needing its own queue of star changes.
+    """
+    conn.execute("DELETE FROM starred_notes WHERE user_id = ?", (user_id,))
+    conn.executemany(
+        "INSERT OR IGNORE INTO starred_notes (user_id, name) VALUES (?, ?)",
+        [(user_id, name) for name in dict.fromkeys(names)],
+    )
+
+
+def star_renamed(conn: sqlite3.Connection, user_id: int, old: str, new: str) -> None:
+    """Carry a star across a rename, or the star would point at a dead name."""
+    conn.execute(
+        "UPDATE OR REPLACE starred_notes SET name = ? WHERE user_id = ? AND name = ?",
+        (new, user_id, old),
+    )
+
+
+def unstar(conn: sqlite3.Connection, user_id: int, name: str) -> None:
+    conn.execute(
+        "DELETE FROM starred_notes WHERE user_id = ? AND name = ?", (user_id, name)
+    )
 
 
 # --- briefings -------------------------------------------------------------

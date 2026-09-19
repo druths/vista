@@ -270,6 +270,14 @@ actor VistaClient {
         ])
     }
 
+    /// Replace the starred set. Wholesale, so a client that starred things
+    /// offline reconciles in one call.
+    func setStarred(names: [String]) async throws {
+        struct Body: Encodable { let names: [String] }
+        struct Ack: Decodable { let ok: Bool }
+        let _: Ack = try await send("api/notes/starred", method: "PUT", body: Body(names: names))
+    }
+
     func note(named name: String) async throws -> NoteContent {
         try await get("api/notes/item", query: [.init(name: "name", value: name)])
     }

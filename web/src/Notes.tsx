@@ -10,11 +10,14 @@ import {
   readNote,
   renameNote,
   saveNote,
+  setStarred,
 } from "./api";
 import { formatRelative } from "./format";
 import { SortControls } from "./SortControls";
 
 const AUTOSAVE_MS = 900;
+/** Backoff ceiling for retrying a failed save. */
+const RETRY_CAP_MS = 300_000;
 
 type SaveState = "saved" | "dirty" | "saving" | "error";
 
@@ -53,6 +56,21 @@ export function NotesScreen({ onError }: { onError: (message: string) => void })
     }
   }
 
+  /// Starring is about reach, so starred notes lead regardless of the sort.
+  const ordered = [...notes.filter((n) => n.starred), ...notes.filter((n) => !n.starred)];
+
+  async function toggleStar(name: string) {
+    const previous = notes;
+    const next = notes.map((n) => (n.name === name ? { ...n, starred: !n.starred } : n));
+    setNotes(next); // optimistic; the set is small and the call is cheap
+    try {
+      await setStarred(next.filter((n) => n.starred).map((n) => n.name));
+    } catch (error) {
+      setNotes(previous);
+      onError((error as Error).message);
+    }
+  }
+
   return (
     <>
       <div className="topbar">
@@ -86,16 +104,31 @@ export function NotesScreen({ onError }: { onError: (message: string) => void })
               <span>Capture something with “New note”.</span>
             </div>
           ) : (
-            notes.map((note) => (
-              <button
+            ordered.map((note) => (
+              <div
                 key={note.name}
                 className={`note-row ${note.name === openName ? "selected" : ""}`}
-                onClick={() => setOpenName(note.name)}
               >
-                <span className="note-row-title">{note.title}</span>
-                {note.preview && <span className="note-row-preview">{note.preview}</span>}
-                <span className="note-row-date">{formatRelative(note.modified)}</span>
-              </button>
+                <button
+                  className={`note-star ${note.starred ? "on" : ""}`}
+                  aria-pressed={note.starred ?? false}
+                  title={note.starred ? "Unstar" : "Star"}
+                  onClick={() => void toggleStar(note.name)}
+                >
+                  {note.starred ? "★" : "☆"}
+                </button>
+                <button className="note-row-main" onClick={() => setOpenName(note.name)}>
+                  <span className="note-row-head">
+                    <span className="note-row-title">{note.title}</span>
+                    <span className="note-row-date">{formatRelative(note.modified)}</span>
+                  </span>
+                  {/* A starred note is pinned for reach; a preview would cost a
+                      line without helping anyone find it. */}
+                  {!note.starred && note.preview && (
+                    <span className="note-row-preview">{note.preview}</span>
+                  )}
+                </button>
+              </div>
             ))
           )}
         </div>
@@ -143,6 +176,13 @@ function NoteEditor({
   const timer = useRef<number | null>(null);
   // Tracks what's on the server so autosave can skip no-op writes.
   const persisted = useRef("");
+  // Latest text, so a retry fired from a timer saves what's on screen now
+  // rather than whatever failed earlier.
+  const latest = useRef("");
+  const retry = useRef<number | null>(null);
+  const attempt = useRef(0);
+
+  latest.current = content;
 
   useEffect(() => {
     let cancelled = false;
@@ -169,10 +209,23 @@ function NoteEditor({
         await saveNote(name, next);
         persisted.current = next;
         setState("saved");
+        attempt.current = 0;
+        if (retry.current) {
+          window.clearTimeout(retry.current);
+          retry.current = null;
+        }
         void onChanged();
       } catch (error) {
         setState("error");
-        onError((error as Error).message);
+        // Report the first failure only; a retry loop shouldn't keep raising
+        // the same banner.
+        if (attempt.current === 0) onError((error as Error).message);
+        // Keep trying on a backing-off schedule — 10s, 20s, 40s, up to five
+        // minutes — rather than waiting to be noticed.
+        attempt.current = Math.min(attempt.current + 1, 6);
+        const delay = Math.min(2 ** attempt.current * 5000, RETRY_CAP_MS);
+        if (retry.current) window.clearTimeout(retry.current);
+        retry.current = window.setTimeout(() => void flush(latest.current), delay);
       }
     },
     [name, onChanged, onError],
@@ -189,11 +242,10 @@ function NoteEditor({
   useEffect(() => {
     return () => {
       if (timer.current) window.clearTimeout(timer.current);
+      if (retry.current) window.clearTimeout(retry.current);
     };
   }, []);
 
-  const latest = useRef(content);
-  latest.current = content;
   useEffect(() => {
     return () => {
       if (ready && latest.current !== persisted.current) void flush(latest.current);
@@ -225,7 +277,13 @@ function NoteEditor({
   }
 
   const label =
-    state === "saving" ? "Saving…" : state === "dirty" ? "Unsaved" : state === "error" ? "Save failed" : "Saved";
+    state === "saving"
+      ? "Saving…"
+      : state === "dirty"
+        ? "Unsaved"
+        : state === "error"
+          ? "Save failed — retrying"
+          : "Saved";
 
   return (
     <div className="pane">
@@ -238,6 +296,13 @@ function NoteEditor({
           {label}
         </span>
         <div className="spacer" />
+        <button
+          className="btn-outline"
+          onClick={() => void flush(content)}
+          disabled={state === "saving" || state === "saved"}
+        >
+          Save
+        </button>
         <button className="btn-outline" onClick={() => setPreview((v) => !v)}>
           {preview ? "Edit" : "Preview"}
         </button>

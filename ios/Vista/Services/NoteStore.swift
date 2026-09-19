@@ -30,6 +30,9 @@ final class NoteStore {
         /// Deleted here, not yet on the server. Kept in the cache rather than
         /// removed so the delete survives until it can be pushed.
         var deleted: Bool = false
+        /// Pinned to the top of the list. Synced with the account, so it
+        /// follows you to the web client and survives a reinstall.
+        var starred: Bool = false
 
         var id: String { localName }
         var title: String { (localName as NSString).deletingPathExtension }
@@ -38,7 +41,9 @@ final class NoteStore {
         var pending: Bool { dirty || pendingRename || deleted || remoteName == nil }
 
         init(localName: String, remoteName: String?, content: String,
-             baseVersion: String?, modified: Date, dirty: Bool, deleted: Bool = false) {
+             baseVersion: String?, modified: Date, dirty: Bool,
+             deleted: Bool = false, starred: Bool = false) {
+            self.starred = starred
             self.localName = localName
             self.remoteName = remoteName
             self.content = content
@@ -60,6 +65,7 @@ final class NoteStore {
             modified = try container.decode(Date.self, forKey: .modified)
             dirty = try container.decode(Bool.self, forKey: .dirty)
             deleted = try container.decodeIfPresent(Bool.self, forKey: .deleted) ?? false
+            starred = try container.decodeIfPresent(Bool.self, forKey: .starred) ?? false
         }
     }
 
@@ -74,6 +80,11 @@ final class NoteStore {
     private let client: VistaClient
     private var fileURL: URL?
     private var monitor: NWPathMonitor?
+    /// Stars changed here and not yet pushed. Tracked as one flag rather than
+    /// per note because the set is sent wholesale.
+    private var starredDirty = false
+    private var retry: Task<Void, Never>?
+    private var retryAttempt = 0
 
     init(client: VistaClient) {
         self.client = client
@@ -96,6 +107,8 @@ final class NoteStore {
     /// Stop using the cache, leaving it on disk — pending edits outlive a sign
     /// out, and the next sign in to the same account picks them up.
     func close() {
+        retry?.cancel()
+        retry = nil
         monitor?.cancel()
         monitor = nil
         fileURL = nil
@@ -131,6 +144,9 @@ final class NoteStore {
         guard fileURL != nil else { return }
         do {
             let listed = try await client.notes(sort: SortOption()).notes
+            // Server stars win, unless stars changed here and haven't been
+            // pushed yet — local intent outranks a stale listing.
+            let adoptStars = !starredDirty
             var byRemote: [String: Entry] = [:]
             for entry in entries where entry.remoteName != nil {
                 byRemote[entry.remoteName!] = entry
@@ -139,17 +155,17 @@ final class NoteStore {
             var merged: [Entry] = []
             for note in listed {
                 if let existing = byRemote[note.name] {
-                    if existing.pending {
-                        merged.append(existing)          // local work outranks the server
-                    } else {
-                        var updated = existing
-                        updated.modified = note.modified
-                        merged.append(updated)
+                    var updated = existing
+                    if adoptStars { updated.starred = note.isStarred }
+                    if !existing.pending {
+                        updated.modified = note.modified  // local work outranks the server
                     }
+                    merged.append(updated)
                 } else {
                     merged.append(Entry(localName: note.name, remoteName: note.name,
                                         content: "", baseVersion: nil,
-                                        modified: note.modified, dirty: false))
+                                        modified: note.modified, dirty: false,
+                                        starred: adoptStars && note.isStarred))
                 }
             }
             // Notes that exist only here — created or renamed offline.
@@ -266,6 +282,16 @@ final class NoteStore {
         return name
     }
 
+    /// Star or unstar. Applied locally at once and pushed with the next sync,
+    /// so it works offline like every other change.
+    func toggleStar(name: String) async {
+        guard var target = entry(named: name) else { return }
+        target.starred.toggle()
+        upsert(target)
+        starredDirty = true
+        await sync()
+    }
+
     /// Mark a note deleted locally and push when possible. The note leaves the
     /// list straight away; the server is told when it can be reached.
     func delete(name: String) async {
@@ -287,16 +313,53 @@ final class NoteStore {
     /// Push every pending entry. Safe to call often; it no-ops when idle.
     func sync() async {
         guard fileURL != nil, !syncing else { return }
-        let pending = entries.filter(\.pending)
-        guard !pending.isEmpty else { return }
+        guard starredDirty || entries.contains(where: \.pending) else { return }
 
         syncing = true
         defer { syncing = false }
 
-        for entry in pending {
+        if starredDirty {
+            let names = entries
+                .filter { $0.starred && !$0.deleted }
+                .map { $0.remoteName ?? $0.localName }
+            do {
+                try await client.setStarred(names: names)
+                starredDirty = false
+            } catch {
+                if !AppModel.isCancellation(error) { lastError = error.localizedDescription }
+            }
+        }
+
+        for entry in entries.filter(\.pending) {
             await push(entry)
         }
         writeCache()
+
+        // Anything still waiting means this attempt didn't get through.
+        if starredDirty || pendingCount > 0 { scheduleRetry() } else { clearRetry() }
+    }
+
+    /// Retry a failed push on a backing-off schedule — roughly 10s, 20s, 40s,
+    /// and so on to a five-minute ceiling. A server that is down shouldn't be
+    /// hammered, but an edit shouldn't sit unsaved waiting to be noticed
+    /// either. Connectivity returning short-circuits the wait.
+    private func scheduleRetry() {
+        retry?.cancel()
+        retryAttempt = min(retryAttempt + 1, 6)
+        let delay = min(pow(2.0, Double(retryAttempt)) * 5, 300)
+        retry = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            await self?.sync()
+        }
+    }
+
+    private func clearRetry() {
+        retry?.cancel()
+        retry = nil
+        retryAttempt = 0
+        // Deliberately not clearing lastError: a conflict message lives there
+        // and has to survive a successful sync to be read.
     }
 
     private func push(_ entry: Entry) async {

@@ -95,16 +95,23 @@ struct Note: Codable, Identifiable, Hashable {
     let size: Int
     let modified: Date
     let preview: String
+    /// Optional because a server older than this build doesn't send it, and a
+    /// missing field would otherwise fail the whole listing.
+    let starred: Bool?
 
     var id: String { name }
+    var isStarred: Bool { starred ?? false }
 }
 
 struct NotesResponse: Codable {
     let notesDir: String
     let notes: [Note]
+    /// The whole starred set, so stars can be reconciled for notes the client
+    /// hasn't cached yet. Absent on older servers.
+    let starred: [String]?
 
     enum CodingKeys: String, CodingKey {
-        case notes
+        case notes, starred
         case notesDir = "notes_dir"
     }
 }

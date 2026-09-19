@@ -61,6 +61,8 @@ export type Note = {
   size: number;
   modified: string;
   preview: string;
+  /** Optional: a server older than this build doesn't send it. */
+  starred?: boolean;
 };
 
 export type SortField = "date" | "name";
@@ -165,9 +167,16 @@ export async function fetchBriefFile(
 }
 
 export const listNotes = (sort: SortField, order: SortOrder) =>
-  request<{ notes: Note[]; notes_dir: string }>(
+  request<{ notes: Note[]; notes_dir: string; starred?: string[] }>(
     `/api/notes?sort=${sort}&order=${order}&preview=true`,
   );
+
+/** Replace the starred set wholesale. */
+export const setStarred = (names: string[]) =>
+  request<{ ok: boolean; starred: string[] }>("/api/notes/starred", {
+    method: "PUT",
+    body: JSON.stringify({ names }),
+  });
 
 export const readNote = (name: string) =>
   request<{ name: string; title: string; content: string }>(

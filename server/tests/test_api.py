@@ -645,3 +645,63 @@ def test_unconditional_delete_still_works(api) -> None:
     client, _ = api
     name = client.post("/api/notes", json={"title": "Blunt", "content": "x"}).json()["name"]
     assert client.delete("/api/notes/item", params={"name": name}).status_code == 200
+
+
+# --- starred notes ---------------------------------------------------------
+
+
+def test_starring_shows_up_in_the_listing(api) -> None:
+    client, _ = api
+    first = client.post("/api/notes", json={"title": "Pinned", "content": "a"}).json()["name"]
+    client.post("/api/notes", json={"title": "Ordinary", "content": "b"})
+
+    assert client.put("/api/notes/starred", json={"names": [first]}).status_code == 200
+
+    body = client.get("/api/notes").json()
+    assert body["starred"] == [first]
+    flags = {n["name"]: n["starred"] for n in body["notes"]}
+    assert flags[first] is True
+    assert all(v is False for k, v in flags.items() if k != first)
+
+
+def test_starred_set_is_replaced_wholesale(api) -> None:
+    """One call reconciles a client that starred things offline."""
+    client, _ = api
+    a = client.post("/api/notes", json={"title": "A", "content": "a"}).json()["name"]
+    b = client.post("/api/notes", json={"title": "B", "content": "b"}).json()["name"]
+
+    client.put("/api/notes/starred", json={"names": [a]})
+    client.put("/api/notes/starred", json={"names": [b]})
+
+    assert client.get("/api/notes").json()["starred"] == [b]
+
+
+def test_a_star_follows_a_rename(api) -> None:
+    """Otherwise the star would point at a name that no longer exists."""
+    client, _ = api
+    name = client.post("/api/notes", json={"title": "Before", "content": "x"}).json()["name"]
+    client.put("/api/notes/starred", json={"names": [name]})
+
+    renamed = client.post("/api/notes/item/rename", params={"name": name},
+                          json={"title": "After"}).json()["name"]
+
+    body = client.get("/api/notes").json()
+    assert body["starred"] == [renamed]
+    assert {n["name"]: n["starred"] for n in body["notes"]}[renamed] is True
+
+
+def test_a_star_is_dropped_with_its_note(api) -> None:
+    client, _ = api
+    name = client.post("/api/notes", json={"title": "Doomed", "content": "x"}).json()["name"]
+    client.put("/api/notes/starred", json={"names": [name]})
+
+    client.delete("/api/notes/item", params={"name": name})
+
+    assert client.get("/api/notes").json()["starred"] == []
+
+
+def test_star_names_must_be_flat_filenames(api) -> None:
+    client, _ = api
+    resp = client.put("/api/notes/starred", json={"names": ["../escape.md", "sub/dir.md", ""]})
+    assert resp.status_code == 200
+    assert resp.json()["starred"] == []

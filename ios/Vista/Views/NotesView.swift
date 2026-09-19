@@ -13,20 +13,24 @@ struct NotesView: View {
 
     private var store: NoteStore { model.notes }
 
+    /// Starred notes first, each group in the chosen order. Starring is about
+    /// reach, so it outranks whatever sort is applied.
     private var ordered: [NoteStore.Entry] {
         // Notes deleted here are still cached until the server is told, but
         // they shouldn't linger on screen.
         let items = store.entries.filter { !$0.deleted }
+        let sorted: [NoteStore.Entry]
         switch sort.field {
         case .name:
-            return items.sorted {
+            sorted = items.sorted {
                 sort.ascending
                     ? $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
                     : $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedDescending
             }
         case .date:
-            return items.sorted { sort.ascending ? $0.modified < $1.modified : $0.modified > $1.modified }
+            sorted = items.sorted { sort.ascending ? $0.modified < $1.modified : $0.modified > $1.modified }
         }
+        return sorted.filter(\.starred) + sorted.filter { !$0.starred }
     }
 
     var body: some View {
@@ -49,28 +53,23 @@ struct NotesView: View {
 
             ForEach(ordered) { entry in
                 NavigationLink(value: NoteRef(name: entry.localName)) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(spacing: 6) {
-                            Text(entry.title).font(.body.weight(.medium))
-                            if entry.pending {
-                                // Held locally, not yet on the server.
-                                Image(systemName: "arrow.up.circle")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .accessibilityLabel("Waiting to sync")
-                            }
-                        }
-                        if !preview(entry).isEmpty {
-                            Text(preview(entry))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(2)
-                        }
-                        Text(entry.modified.formatted(.relative(presentation: .named)))
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
+                    row(for: entry)
+                }
+                .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 12))
+                .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                    Button {
+                        Task { await store.toggleStar(name: entry.localName) }
+                    } label: {
+                        Label(entry.starred ? "Unstar" : "Star",
+                              systemImage: entry.starred ? "star.slash" : "star")
                     }
-                    .padding(.vertical, 2)
+                    .tint(.yellow)
+                }
+                .contextMenu {
+                    Button(entry.starred ? "Unstar" : "Star",
+                           systemImage: entry.starred ? "star.slash" : "star") {
+                        Task { await store.toggleStar(name: entry.localName) }
+                    }
                 }
             }
             .onDelete { offsets in
@@ -118,6 +117,43 @@ struct NotesView: View {
         }
     }
 
+    /// One row, kept tight so more notes fit on screen. A starred note shows
+    /// its name alone — it's pinned for reach, and a preview would cost a line
+    /// without helping anyone find it.
+    @ViewBuilder
+    private func row(for entry: NoteStore.Entry) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 5) {
+                if entry.starred {
+                    Image(systemName: "star.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.yellow)
+                }
+                Text(entry.title)
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
+                if entry.pending {
+                    // Held locally, not yet on the server.
+                    Image(systemName: "arrow.up.circle")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("Waiting to sync")
+                }
+                Spacer(minLength: 4)
+                Text(entry.modified.formatted(.relative(presentation: .numeric)))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
+            if !entry.starred, !preview(entry).isEmpty {
+                Text(preview(entry))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
     /// Capture should be one tap: make an untitled note and open it straight
     /// away rather than asking for a name first. Works offline — the note is
     /// created locally and pushed when there's a server to push to.
@@ -137,8 +173,8 @@ struct NotesView: View {
             guard !line.isEmpty else { continue }
             if lines.isEmpty, line.caseInsensitiveCompare(entry.title) == .orderedSame { continue }
             lines.append(line)
-            if lines.joined(separator: " ").count > 120 { break }
+            if lines.joined(separator: " ").count > 100 { break }
         }
-        return String(lines.joined(separator: " ").prefix(120))
+        return String(lines.joined(separator: " ").prefix(100))
     }
 }

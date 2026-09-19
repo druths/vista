@@ -93,6 +93,10 @@ class NoteRename(BaseModel):
     title: str = Field(min_length=1, max_length=200)
 
 
+class StarredUpdate(BaseModel):
+    names: list[str] = Field(default_factory=list, max_length=2000)
+
+
 class ArkConnectionUpdate(BaseModel):
     base_url: str = Field(min_length=1, max_length=500)
     agent: str = Field(min_length=1, max_length=200)
@@ -506,12 +510,39 @@ async def list_notes(
 ) -> dict[str, Any]:
     found = await notes_mod.list_notes(user.client(), user.notes_dir, with_preview=preview)
     ordered = notes_mod.sort_notes(found, sort, order)
+    with db.session() as conn:
+        starred = db.list_starred(conn, user.id)
+    starred_set = set(starred)
+
     return {
         "notes_dir": user.notes_dir,
         "sort": sort,
         "order": order,
-        "notes": [n.to_json() for n in ordered],
+        # Both shapes: a flag per note for rendering, and the whole set so a
+        # client can reconcile stars for notes it has not cached yet.
+        "starred": starred,
+        "notes": [{**n.to_json(), "starred": n.name in starred_set} for n in ordered],
     }
+
+
+@app.put("/api/notes/starred")
+def set_starred(user: User, body: StarredUpdate) -> dict[str, Any]:
+    """Replace the starred set.
+
+    Wholesale so an offline client reconciles in one call rather than keeping
+    its own queue of individual star changes.
+    """
+    cleaned: list[str] = []
+    for name in body.names:
+        candidate = name.strip()
+        # Stars key off a flat filename, same as every other note operation.
+        if not candidate or "/" in candidate or "\\" in candidate or len(candidate) > 200:
+            continue
+        cleaned.append(candidate)
+
+    with db.session() as conn:
+        db.set_starred(conn, user.id, cleaned)
+    return {"ok": True, "starred": cleaned}
 
 
 @app.post("/api/notes", status_code=201)
@@ -611,6 +642,8 @@ async def delete_note(
             current = await client.read_file(path)
         except ark.NotFound:
             # Already gone: the delete got what it wanted.
+            with db.session() as conn:
+                db.unstar(conn, user.id, name)
             return {"ok": True, "name": name, "already_gone": True}
         current_version = notes_mod.version_of(current)
         if current_version != if_version:
@@ -626,6 +659,8 @@ async def delete_note(
             )
 
     await client.delete(path)
+    with db.session() as conn:
+        db.unstar(conn, user.id, name)
     return {"ok": True, "name": name}
 
 
@@ -639,6 +674,9 @@ async def rename_note(user: User, body: NoteRename, name: str = Query(...)) -> d
         # Same shape as the branch below; a client decodes one type, not two.
         return {"ok": True, "name": name, "title": PurePosixPath(name).stem, "path": source}
     await client.rename(source, dest)
+    # A star has to follow its note, or it points at a name that is gone.
+    with db.session() as conn:
+        db.star_renamed(conn, user.id, name, new_name)
     return {"ok": True, "name": new_name, "title": PurePosixPath(new_name).stem, "path": dest}
 
 
