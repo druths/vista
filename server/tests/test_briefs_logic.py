@@ -132,3 +132,25 @@ def test_display_date_falls_back_to_the_file_time() -> None:
 
     assert payload["date"] == "2026-03-04"
     assert payload["date_source"] == "mtime"
+
+
+def test_version_is_a_stable_known_value() -> None:
+    """Pin the fingerprint algorithm.
+
+    The iOS client computes this itself to recognise its own writes. If the
+    two implementations drift, every write starts looking like someone else's
+    edit — so this is a golden value, not a property check.
+    """
+    from vista.notes import version_of
+
+    # SHA-256 of "hello", first sixteen hex characters.
+    assert version_of("hello") == "2cf24dba5fb0a30e"
+    assert version_of(b"hello") == "2cf24dba5fb0a30e"
+    assert len(version_of("anything")) == 16
+
+
+def test_version_distinguishes_content() -> None:
+    from vista.notes import version_of
+
+    assert version_of("a") != version_of("b")
+    assert version_of("") == version_of("")

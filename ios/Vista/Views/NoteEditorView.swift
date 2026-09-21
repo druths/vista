@@ -116,7 +116,12 @@ struct NoteEditorView: View {
         autosave = Task {
             try? await Task.sleep(for: .milliseconds(900))
             guard !Task.isCancelled else { return }
-            await store.save(name: currentName, content: next)
+            // Hand the save to a task of its own. The next keystroke cancels
+            // the wait above, and it used to cancel the write with it — mid
+            // request, after the server had already applied it. The app then
+            // held a fingerprint one save out of date and its own next write
+            // came back refused.
+            Task { await store.save(name: currentName, content: next) }
         }
     }
 

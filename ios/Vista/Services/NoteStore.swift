@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Network
 import Observation
@@ -33,6 +34,10 @@ final class NoteStore {
         /// Pinned to the top of the list. Synced with the account, so it
         /// follows you to the web client and survives a reinstall.
         var starred: Bool = false
+        /// Fingerprints of content this device has sent to the server, most
+        /// recent last. Lets a refused write be recognised as our own work
+        /// rather than someone else's edit.
+        var sentVersions: [String] = []
 
         var id: String { localName }
         var title: String { (localName as NSString).deletingPathExtension }
@@ -42,8 +47,10 @@ final class NoteStore {
 
         init(localName: String, remoteName: String?, content: String,
              baseVersion: String?, modified: Date, dirty: Bool,
-             deleted: Bool = false, starred: Bool = false) {
+             deleted: Bool = false, starred: Bool = false,
+             sentVersions: [String] = []) {
             self.starred = starred
+            self.sentVersions = sentVersions
             self.localName = localName
             self.remoteName = remoteName
             self.content = content
@@ -66,6 +73,7 @@ final class NoteStore {
             dirty = try container.decode(Bool.self, forKey: .dirty)
             deleted = try container.decodeIfPresent(Bool.self, forKey: .deleted) ?? false
             starred = try container.decodeIfPresent(Bool.self, forKey: .starred) ?? false
+            sentVersions = try container.decodeIfPresent([String].self, forKey: .sentVersions) ?? []
         }
     }
 
@@ -85,6 +93,20 @@ final class NoteStore {
     private var starredDirty = false
     private var retry: Task<Void, Never>?
     private var retryAttempt = 0
+    /// Set by a push that got somewhere, so sync knows to go round again for
+    /// work that appeared while it was busy.
+    private var madeProgress = false
+    /// How many times in a row a note's refusal has been recognised as our own
+    /// write. Bounded so a pathological case can't ping-pong forever.
+    private var adoptions: [String: Int] = [:]
+
+    /// Fingerprint of a note's content, matching the server's `version_of`:
+    /// SHA-256, hex, first sixteen characters. Pinned by a golden test there,
+    /// since the two have to agree or every write looks like a conflict.
+    static func fingerprint(_ content: String) -> String {
+        let digest = SHA256.hash(data: Data(content.utf8))
+        return String(digest.map { String(format: "%02x", $0) }.joined().prefix(16))
+    }
 
     init(client: VistaClient) {
         self.client = client
@@ -245,11 +267,14 @@ final class NoteStore {
 
     /// Record an edit locally and try to push it. Always succeeds locally.
     func save(name: String, content: String) async {
-        guard var entry = entry(named: name) else { return }
-        entry.content = content
-        entry.dirty = true
-        entry.modified = .now
-        upsert(entry)
+        guard var target = entry(named: name) else { return }
+        // Nothing to do: the editor fires a save when it closes as well as on
+        // its timer, and writing identical text just churns.
+        guard target.content != content || target.dirty else { return }
+        target.content = content
+        target.dirty = true
+        target.modified = .now
+        upsert(target)
         await sync()
     }
 
@@ -318,22 +343,33 @@ final class NoteStore {
         syncing = true
         defer { syncing = false }
 
-        if starredDirty {
-            let names = entries
-                .filter { $0.starred && !$0.deleted }
-                .map { $0.remoteName ?? $0.localName }
-            do {
-                try await client.setStarred(names: names)
-                starredDirty = false
-            } catch {
-                if !AppModel.isCancellation(error) { lastError = error.localizedDescription }
-            }
-        }
+        // Work appears while a push is in flight — a keystroke landing during
+        // a save. Go round again so it leaves now rather than waiting on the
+        // failure backoff, but bound the rounds so a persistent refusal can't
+        // spin here.
+        var rounds = 0
+        repeat {
+            rounds += 1
+            madeProgress = false
 
-        for entry in entries.filter(\.pending) {
-            await push(entry)
-        }
-        writeCache()
+            if starredDirty {
+                let names = entries
+                    .filter { $0.starred && !$0.deleted }
+                    .map { $0.remoteName ?? $0.localName }
+                do {
+                    try await client.setStarred(names: names)
+                    starredDirty = false
+                    madeProgress = true
+                } catch {
+                    if !AppModel.isCancellation(error) { lastError = error.localizedDescription }
+                }
+            }
+
+            for entry in entries.filter(\.pending) {
+                await push(entry)
+            }
+            writeCache()
+        } while madeProgress && (starredDirty || pendingCount > 0) && rounds < 4
 
         // Anything still waiting means this attempt didn't get through.
         if starredDirty || pendingCount > 0 { scheduleRetry() } else { clearRetry() }
@@ -399,22 +435,64 @@ final class NoteStore {
         }
         guard working.dirty else { return }
 
+        // Record what we're about to send, before sending it. If the reply
+        // never arrives, this is the only evidence the write ever happened.
+        let sent = Self.fingerprint(working.content)
+        working.sentVersions = Array((working.sentVersions + [sent]).suffix(8))
+        upsert(working)
+
         do {
             let outcome = try await client.saveNote(name: working.remoteName!,
                                                     content: working.content,
                                                     ifVersion: working.baseVersion)
             switch outcome {
             case let .saved(version):
-                working.baseVersion = version
-                working.dirty = false
-                replace(working.localName, with: working)
+                confirm(working.localName, version: version, wrote: working.content)
+                adoptions[working.localName] = 0
+                madeProgress = true
                 lastError = nil
             case let .conflict(conflict):
-                await resolve(working, against: conflict)
+                await handleRefusal(conflict, for: working)
             }
         } catch {
             if !AppModel.isCancellation(error) { lastError = error.localizedDescription }
         }
+    }
+
+    /// Record a successful write without throwing away anything typed while it
+    /// was in flight.
+    private func confirm(_ name: String, version: String?, wrote content: String) {
+        guard var live = entry(named: name) else { return }
+        live.baseVersion = version
+        // Only clean if nothing newer arrived meanwhile; otherwise it stays
+        // pending so the newer text goes out on the next round.
+        if live.content == content { live.dirty = false }
+        upsert(live)
+    }
+
+    /// A refused write.
+    ///
+    /// If the server is holding something this device sent, that's our own
+    /// earlier save which we never heard back about — take its version and let
+    /// the pending text go out again. Only content we've never sent is someone
+    /// else's edit, and only that deserves a conflict copy.
+    private func handleRefusal(_ conflict: NoteConflict, for entry: Entry) async {
+        let name = entry.localName
+        let ours = entry.sentVersions.contains(conflict.version)
+        let attempts = adoptions[name] ?? 0
+
+        if ours, attempts < 3 {
+            adoptions[name] = attempts + 1
+            if var live = self.entry(named: name) {
+                live.baseVersion = conflict.version
+                upsert(live)                     // still dirty: resent next round
+            }
+            madeProgress = true
+            return
+        }
+
+        adoptions[name] = 0
+        await resolve(entry, against: conflict)
     }
 
     private func pushDelete(_ entry: Entry) async {
@@ -426,6 +504,7 @@ final class NoteStore {
             switch try await client.deleteNote(name: remote, ifVersion: entry.baseVersion) {
             case .deleted:
                 entries.removeAll { $0.localName == entry.localName }
+                madeProgress = true
                 lastError = nil
             case let .conflict(conflict):
                 // Edited elsewhere while the delete sat queued, so the edit
@@ -453,6 +532,7 @@ final class NoteStore {
             working.baseVersion = created.version
             working.dirty = false
             replace(entry.localName, with: working)
+            madeProgress = true
             lastError = nil
         } catch {
             if !AppModel.isCancellation(error) { lastError = error.localizedDescription }
