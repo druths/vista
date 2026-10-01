@@ -705,3 +705,74 @@ def test_star_names_must_be_flat_filenames(api) -> None:
     resp = client.put("/api/notes/starred", json={"names": ["../escape.md", "sub/dir.md", ""]})
     assert resp.status_code == 200
     assert resp.json()["starred"] == []
+
+
+# --- read / unread briefs --------------------------------------------------
+
+
+def test_briefs_start_unread(api) -> None:
+    client, account = api
+    body = client.get(f"/api/briefings/{account['briefing_id']}/briefs").json()
+
+    assert all(b["read"] is False for b in body["briefs"])
+    assert body["unread"] == len(body["briefs"])
+
+
+def test_marking_a_brief_read_sticks(api) -> None:
+    client, account = api
+    briefing = account["briefing_id"]
+    first = client.get(f"/api/briefings/{briefing}/briefs").json()["briefs"][0]
+
+    marked = client.post(f"/api/briefings/{briefing}/read",
+                         json={"keys": [first["key"]], "read": True})
+    assert marked.status_code == 200
+
+    body = client.get(f"/api/briefings/{briefing}/briefs").json()
+    states = {b["key"]: b["read"] for b in body["briefs"]}
+    assert states[first["key"]] is True
+    assert body["unread"] == len(body["briefs"]) - 1
+
+
+def test_a_brief_can_be_marked_unread_again(api) -> None:
+    client, account = api
+    briefing = account["briefing_id"]
+    key = client.get(f"/api/briefings/{briefing}/briefs").json()["briefs"][0]["key"]
+
+    client.post(f"/api/briefings/{briefing}/read", json={"keys": [key], "read": True})
+    client.post(f"/api/briefings/{briefing}/read", json={"keys": [key], "read": False})
+
+    body = client.get(f"/api/briefings/{briefing}/briefs").json()
+    assert {b["key"]: b["read"] for b in body["briefs"]}[key] is False
+    assert body["unread"] == len(body["briefs"])
+
+
+def test_marking_many_read_at_once(api) -> None:
+    """"Mark all read" shouldn't be one request per brief."""
+    client, account = api
+    briefing = account["briefing_id"]
+    keys = [b["key"] for b in client.get(f"/api/briefings/{briefing}/briefs").json()["briefs"]]
+
+    client.post(f"/api/briefings/{briefing}/read", json={"keys": keys, "read": True})
+
+    assert client.get(f"/api/briefings/{briefing}/briefs").json()["unread"] == 0
+
+
+def test_read_state_is_scoped_to_its_briefing(api) -> None:
+    """Two briefings can hold briefs with the same key; reading one must not
+    mark the other."""
+    client, account = api
+    other = client.post("/api/briefings",
+                        json={"name": "Second", "path": f"{account['root']}/briefs"}).json()["id"]
+    briefing = account["briefing_id"]
+    key = client.get(f"/api/briefings/{briefing}/briefs").json()["briefs"][0]["key"]
+
+    client.post(f"/api/briefings/{briefing}/read", json={"keys": [key], "read": True})
+
+    others = client.get(f"/api/briefings/{other}/briefs").json()
+    assert all(b["read"] is False for b in others["briefs"])
+
+
+def test_read_state_needs_a_briefing_you_own(api) -> None:
+    client, _ = api
+    assert client.post("/api/briefings/999999/read",
+                       json={"keys": ["x"], "read": True}).status_code == 404

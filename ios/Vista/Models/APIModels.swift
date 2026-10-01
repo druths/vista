@@ -51,8 +51,12 @@ struct Brief: Codable, Identifiable, Hashable {
     let annotatedPath: String?
     let primaryPath: String?
     let primaryKind: String
+    /// Optional because a server older than this build doesn't send it, and a
+    /// missing field would otherwise fail the whole listing.
+    let read: Bool?
 
     var id: String { key }
+    var isRead: Bool { read ?? true }
 
     /// True when the date was inferred from the file's mtime rather than read
     /// from its name — worth showing as approximate.
@@ -80,12 +84,14 @@ struct Brief: Codable, Identifiable, Hashable {
         case annotatedPath = "annotated_path"
         case primaryPath = "primary_path"
         case primaryKind = "primary_kind"
+        case read
     }
 }
 
 struct BriefsResponse: Codable {
     let briefing: Briefing
     let briefs: [Brief]
+    let unread: Int?
 }
 
 struct Note: Codable, Identifiable, Hashable {

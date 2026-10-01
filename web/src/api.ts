@@ -52,6 +52,8 @@ export type Brief = {
   annotated_path: string | null;
   primary_path: string | null;
   primary_kind: "pdf" | "text";
+  /** Optional: a server older than this build doesn't send it. */
+  read?: boolean;
 };
 
 export type Note = {
@@ -136,9 +138,17 @@ export function logout(): void {
 export const me = () => request<User>("/api/me");
 
 export const listBriefs = (briefingId: number, sort: SortField, order: SortOrder) =>
-  request<{ briefing: Briefing; briefs: Brief[] }>(
+  request<{ briefing: Briefing; briefs: Brief[]; unread?: number }>(
     `/api/briefings/${briefingId}/briefs?sort=${sort}&order=${order}`,
   );
+
+/** Mark briefs read or unread. Takes a list so one brief and a whole briefing
+ *  are the same call. */
+export const markBriefsRead = (briefingId: number, keys: string[], read: boolean) =>
+  request<{ ok: boolean }>(`/api/briefings/${briefingId}/read`, {
+    method: "POST",
+    body: JSON.stringify({ keys, read }),
+  });
 
 /**
  * Fetch a brief's bytes as an object URL.

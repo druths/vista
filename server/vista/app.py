@@ -97,6 +97,11 @@ class StarredUpdate(BaseModel):
     names: list[str] = Field(default_factory=list, max_length=2000)
 
 
+class ReadUpdate(BaseModel):
+    keys: list[str] = Field(default_factory=list, max_length=5000)
+    read: bool = True
+
+
 class ArkConnectionUpdate(BaseModel):
     base_url: str = Field(min_length=1, max_length=500)
     agent: str = Field(min_length=1, max_length=200)
@@ -425,6 +430,10 @@ async def list_briefs(
     briefing = _briefing_or_404(user, briefing_id)
     found = await briefs_mod.list_briefs(user.client(), briefing["path"])
     ordered = briefs_mod.sort_briefs(found, sort, order)
+    with db.session() as conn:
+        read = set(db.list_read_briefs(conn, user.id, briefing_id))
+
+    briefs = [{**b.to_json(), "read": b.key in read} for b in ordered]
     return {
         "briefing": {
             "id": briefing["id"],
@@ -433,8 +442,24 @@ async def list_briefs(
         },
         "sort": sort,
         "order": order,
-        "briefs": [b.to_json() for b in ordered],
+        "unread": sum(1 for b in briefs if not b["read"]),
+        "briefs": briefs,
     }
+
+
+@app.post("/api/briefings/{briefing_id}/read")
+def mark_briefs_read(briefing_id: int, user: User, body: ReadUpdate) -> dict[str, Any]:
+    """Mark briefs read, or unread.
+
+    Takes a list so opening one brief and marking a whole briefing read are
+    the same call. Read state is stored per briefing, because two briefings
+    can hold briefs with identical keys.
+    """
+    _briefing_or_404(user, briefing_id)
+    keys = [key.strip() for key in body.keys if key.strip()]
+    with db.session() as conn:
+        db.mark_briefs_read(conn, user.id, briefing_id, keys, body.read)
+    return {"ok": True, "count": len(keys), "read": body.read}
 
 
 @app.get("/api/briefings/{briefing_id}/file")

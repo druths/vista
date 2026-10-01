@@ -217,6 +217,16 @@ input:focus, textarea:focus, select:focus {
 }
 .row:hover { background: var(--surface-alt); }
 .row.selected { background: var(--accent-soft); }
+.row-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: transparent;
+  align-self: center;
+}
+.row-dot.unread { background: var(--accent); }
+
 .row-title { font-weight: 500; }
 /* When every brief in a series shares a title, the date carries the identity
    and the repeated title becomes the secondary label. */

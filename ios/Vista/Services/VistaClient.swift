@@ -223,6 +223,15 @@ actor VistaClient {
         ])
     }
 
+    /// Mark briefs read, or unread. Takes a list so opening one brief and
+    /// clearing a whole briefing are the same call.
+    func markBriefs(briefingID: Int, keys: [String], read: Bool) async throws {
+        struct Body: Encodable { let keys: [String]; let read: Bool }
+        struct Ack: Decodable { let ok: Bool }
+        let _: Ack = try await send("api/briefings/\(briefingID)/read", method: "POST",
+                                    body: Body(keys: keys, read: read))
+    }
+
     /// Download a brief's bytes to a file. PDFKit and QuickLook both want a
     /// URL on disk, and a file also survives being handed to the system
     /// Markup editor.

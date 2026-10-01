@@ -38,6 +38,17 @@ CREATE TABLE IF NOT EXISTS briefings (
 
 CREATE INDEX IF NOT EXISTS idx_briefings_user ON briefings(user_id);
 
+-- Which briefs have been read. Keyed by the brief's key within its briefing,
+-- which is what the listing addresses briefs by. Rows go when the briefing
+-- does, so this never outlives what it describes.
+CREATE TABLE IF NOT EXISTS read_briefs (
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    briefing_id INTEGER NOT NULL REFERENCES briefings(id) ON DELETE CASCADE,
+    brief_key   TEXT NOT NULL,
+    read_at     TEXT NOT NULL,
+    PRIMARY KEY (user_id, briefing_id, brief_key)
+);
+
 -- Starred notes, keyed by filename. Stars follow a rename and are dropped
 -- with the note, so this never accumulates orphans.
 CREATE TABLE IF NOT EXISTS starred_notes (
@@ -160,6 +171,46 @@ def set_password(conn: sqlite3.Connection, user_id: int, password_hash: str) -> 
 
 def delete_user(conn: sqlite3.Connection, user_id: int) -> None:
     conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+
+
+# --- read briefs -----------------------------------------------------------
+
+
+def list_read_briefs(
+    conn: sqlite3.Connection, user_id: int, briefing_id: int
+) -> list[str]:
+    rows = conn.execute(
+        "SELECT brief_key FROM read_briefs WHERE user_id = ? AND briefing_id = ?",
+        (user_id, briefing_id),
+    ).fetchall()
+    return [row["brief_key"] for row in rows]
+
+
+def mark_briefs_read(
+    conn: sqlite3.Connection,
+    user_id: int,
+    briefing_id: int,
+    keys: list[str],
+    read: bool,
+) -> None:
+    """Mark briefs read or unread.
+
+    Per key rather than replacing a whole set: a briefing holds hundreds of
+    briefs and the client only ever knows about the handful it just touched.
+    """
+    if not keys:
+        return
+    if read:
+        conn.executemany(
+            "INSERT OR REPLACE INTO read_briefs (user_id, briefing_id, brief_key, read_at) "
+            "VALUES (?, ?, ?, ?)",
+            [(user_id, briefing_id, key, now()) for key in dict.fromkeys(keys)],
+        )
+    else:
+        conn.executemany(
+            "DELETE FROM read_briefs WHERE user_id = ? AND briefing_id = ? AND brief_key = ?",
+            [(user_id, briefing_id, key) for key in dict.fromkeys(keys)],
+        )
 
 
 # --- starred notes ---------------------------------------------------------

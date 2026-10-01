@@ -6,6 +6,7 @@ import {
   type SortOrder,
   fetchBriefFile,
   listBriefs,
+  markBriefsRead,
 } from "./api";
 import { formatDate, formatSize } from "./format";
 import { SortControls } from "./SortControls";
@@ -21,6 +22,7 @@ export function BriefsScreen({ briefing, onError }: Props) {
   const [sort, setSort] = useState<SortField>("date");
   const [order, setOrder] = useState<SortOrder>("desc");
   const [loading, setLoading] = useState(true);
+  const [unread, setUnread] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -29,6 +31,7 @@ export function BriefsScreen({ briefing, onError }: Props) {
       .then((body) => {
         if (cancelled) return;
         setBriefs(body.briefs);
+        setUnread(body.unread ?? 0);
         // Keep the open brief selected across a re-sort or refresh.
         setSelected((current) =>
           current ? body.briefs.find((b) => b.key === current.key) ?? null : null,
@@ -43,6 +46,23 @@ export function BriefsScreen({ briefing, onError }: Props) {
 
   // Selecting a different briefing should not leave the previous brief open.
   useEffect(() => setSelected(null), [briefing.id]);
+
+  /// Opening a brief marks it read, the way a mail client does. Applied
+  /// locally first so the dot clears immediately; read state is held on the
+  /// server so it matches on every device.
+  async function open(brief: Brief) {
+    setSelected(brief);
+    if (brief.read) return;
+    setBriefs((current) =>
+      current.map((b) => (b.key === brief.key ? { ...b, read: true } : b)),
+    );
+    setUnread((count) => Math.max(0, count - 1));
+    try {
+      await markBriefsRead(briefing.id, [brief.key], true);
+    } catch {
+      // Not worth interrupting a read for; the next open marks it again.
+    }
+  }
 
   // Reading a brief takes over the whole pane — stacking the list header
   // above the reader header just eats vertical space.
@@ -64,7 +84,10 @@ export function BriefsScreen({ briefing, onError }: Props) {
       <div className="topbar">
         <h1>{briefing.name}</h1>
         <span className="row-meta">
-          {loading ? "Loading…" : `${briefs.length} brief${briefs.length === 1 ? "" : "s"}`}
+          {loading
+            ? "Loading…"
+            : `${briefs.length} brief${briefs.length === 1 ? "" : "s"}` +
+              (unread > 0 ? ` · ${unread} unread` : "")}
         </span>
         <div className="spacer" />
         <SortControls
@@ -78,7 +101,7 @@ export function BriefsScreen({ briefing, onError }: Props) {
       </div>
 
       <div className="content">
-        <BriefList briefs={briefs} loading={loading} briefing={briefing} onOpen={setSelected} />
+        <BriefList briefs={briefs} loading={loading} briefing={briefing} onOpen={open} />
       </div>
     </>
   );
@@ -119,6 +142,9 @@ function BriefList({
     <div className="brief-list scroll">
       {briefs.map((brief) => (
         <button key={brief.key} className="row" onClick={() => onOpen(brief)}>
+          {/* Mail's convention: a dot on the left. The space stays reserved
+              once read so titles don't shift. */}
+          <span className={`row-dot ${brief.read ? "" : "unread"}`} aria-hidden="true" />
           {seriesTitle ? (
             <span
               className="row-date-lead"

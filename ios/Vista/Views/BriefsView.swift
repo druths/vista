@@ -21,6 +21,12 @@ struct BriefsView: View {
                 NavigationLink(value: brief) {
                     BriefRow(brief: brief, leadWithDate: seriesTitle != nil)
                 }
+                .contextMenu {
+                    Button(brief.isRead ? "Mark as Unread" : "Mark as Read",
+                           systemImage: brief.isRead ? "circle" : "checkmark.circle") {
+                        Task { await setRead(brief, read: !brief.isRead) }
+                    }
+                }
             }
         }
         .listStyle(.plain)
@@ -39,10 +45,22 @@ struct BriefsView: View {
         .navigationBarTitleDisplayMode(.large)
         .navigationDestination(for: Brief.self) { brief in
             BriefReaderView(briefing: briefing, brief: brief, onChanged: { await load() })
+                // Opening a brief marks it read, the way a mail client does.
+                .task { await setRead(brief, read: true) }
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 SortMenu(sort: $sort)
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button("Mark All as Read", systemImage: "checkmark.circle") {
+                        Task { await markAllRead() }
+                    }
+                    .disabled(briefs.allSatisfy(\.isRead))
+                } label: {
+                    Label("More", systemImage: "ellipsis.circle")
+                }
             }
         }
         .refreshable { await load() }
@@ -56,6 +74,22 @@ struct BriefsView: View {
         let briefingID: Int
         let field: SortOption.Field
         let ascending: Bool
+    }
+
+    /// Read state lives on the server so it matches across devices. A failure
+    /// here is not worth interrupting a read for — the next open marks it
+    /// again.
+    private func setRead(_ brief: Brief, read: Bool) async {
+        guard brief.isRead != read else { return }
+        try? await model.client.markBriefs(briefingID: briefing.id, keys: [brief.key], read: read)
+        await load()
+    }
+
+    private func markAllRead() async {
+        let unread = briefs.filter { !$0.isRead }.map(\.key)
+        guard !unread.isEmpty else { return }
+        try? await model.client.markBriefs(briefingID: briefing.id, keys: unread, read: true)
+        await load()
     }
 
     private func load() async {
@@ -75,6 +109,12 @@ private struct BriefRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
+            // Mail's convention: a dot on the left, and the space stays
+            // reserved once read so titles don't shift.
+            Circle()
+                .fill(brief.isRead ? Color.clear : Color.accentColor)
+                .frame(width: 8, height: 8)
+                .accessibilityLabel(brief.isRead ? "Read" : "Unread")
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(leadWithDate ? dateText : brief.title)
