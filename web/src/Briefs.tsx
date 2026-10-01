@@ -23,6 +23,9 @@ export function BriefsScreen({ briefing, onError }: Props) {
   const [order, setOrder] = useState<SortOrder>("desc");
   const [loading, setLoading] = useState(true);
   const [unread, setUnread] = useState(0);
+  // Unread by default: a briefing is a stream you work through, so what's
+  // left to read is the useful view.
+  const [filter, setFilter] = useState<"unread" | "all">("unread");
 
   useEffect(() => {
     let cancelled = false;
@@ -44,6 +47,14 @@ export function BriefsScreen({ briefing, onError }: Props) {
     };
   }, [briefing.id, sort, order, onError]);
 
+  // A briefing is usually one recurring document, so every row carries the
+  // same title and the date is what distinguishes them. Decided from the full
+  // set, not the filtered view — one unread brief is still part of a series.
+  const seriesTitle =
+    briefs.length > 1 && new Set(briefs.map((b) => b.title)).size === 1
+      ? briefs[0].title
+      : null;
+
   // Selecting a different briefing should not leave the previous brief open.
   useEffect(() => setSelected(null), [briefing.id]);
 
@@ -61,6 +72,24 @@ export function BriefsScreen({ briefing, onError }: Props) {
     } catch (error) {
       // Put the dots back rather than leave the list claiming something the
       // server doesn't agree with.
+      setBriefs(previousBriefs);
+      setUnread(previousUnread);
+      onError((error as Error).message);
+    }
+  }
+
+  /// Toggle one brief, from clicking its dot.
+  async function toggleRead(brief: Brief) {
+    const next = !brief.read;
+    const previousBriefs = briefs;
+    const previousUnread = unread;
+    setBriefs((current) =>
+      current.map((b) => (b.key === brief.key ? { ...b, read: next } : b)),
+    );
+    setUnread((count) => Math.max(0, count + (next ? -1 : 1)));
+    try {
+      await markBriefsRead(briefing.id, [brief.key], next);
+    } catch (error) {
       setBriefs(previousBriefs);
       setUnread(previousUnread);
       onError((error as Error).message);
@@ -110,6 +139,18 @@ export function BriefsScreen({ briefing, onError }: Props) {
               (unread > 0 ? ` · ${unread} unread` : "")}
         </span>
         <div className="spacer" />
+        <div className="segmented" role="group" aria-label="Which briefs to show">
+          {(["unread", "all"] as const).map((value) => (
+            <button
+              key={value}
+              className={filter === value ? "segment active" : "segment"}
+              aria-pressed={filter === value}
+              onClick={() => setFilter(value)}
+            >
+              {value === "unread" ? "Unread" : "All"}
+            </button>
+          ))}
+        </div>
         <SortControls
           sort={sort}
           order={order}
@@ -126,7 +167,16 @@ export function BriefsScreen({ briefing, onError }: Props) {
       </div>
 
       <div className="content">
-        <BriefList briefs={briefs} loading={loading} briefing={briefing} onOpen={open} />
+        <BriefList
+          briefs={filter === "unread" ? briefs.filter((b) => !b.read) : briefs}
+          loading={loading}
+          briefing={briefing}
+          onOpen={open}
+          onToggleRead={toggleRead}
+          filteredToUnread={filter === "unread"}
+          onShowAll={() => setFilter("all")}
+          seriesTitle={seriesTitle}
+        />
       </div>
     </>
   );
@@ -137,13 +187,34 @@ function BriefList({
   loading,
   briefing,
   onOpen,
+  onToggleRead,
+  filteredToUnread,
+  onShowAll,
+  seriesTitle,
 }: {
   briefs: Brief[];
   loading: boolean;
   briefing: Briefing;
   onOpen: (brief: Brief) => void;
+  onToggleRead: (brief: Brief) => void;
+  filteredToUnread: boolean;
+  onShowAll: () => void;
+  seriesTitle: string | null;
 }) {
   if (loading) return <div className="empty">Loading briefs…</div>;
+  if (briefs.length === 0 && filteredToUnread) {
+    // Nothing unread isn't the same as nothing here — say which it is, and
+    // offer the way out of the filter.
+    return (
+      <div className="empty">
+        <strong>Nothing unread</strong>
+        <span>You're up to date in {briefing.name}.</span>
+        <button className="btn-outline" onClick={onShowAll}>
+          Show all briefs
+        </button>
+      </div>
+    );
+  }
   if (briefs.length === 0) {
     return (
       <div className="empty">
@@ -155,21 +226,19 @@ function BriefList({
     );
   }
 
-  // A briefing is usually one recurring document, so every row carries the
-  // same title and the date is what actually distinguishes them. Detect that
-  // and promote the date rather than printing the title ten times.
-  const seriesTitle =
-    briefs.length > 1 && new Set(briefs.map((b) => b.title)).size === 1
-      ? briefs[0].title
-      : null;
-
   return (
     <div className="brief-list scroll">
       {briefs.map((brief) => (
-        <button key={brief.key} className="row" onClick={() => onOpen(brief)}>
-          {/* Mail's convention: a dot on the left. The space stays reserved
-              once read so titles don't shift. */}
-          <span className={`row-dot ${brief.read ? "" : "unread"}`} aria-hidden="true" />
+        <div key={brief.key} className="row">
+          {/* Mail's convention: a dot on the left, and clicking it toggles
+              read. The space stays reserved once read so titles don't shift. */}
+          <button
+            className={`row-dot ${brief.read ? "" : "unread"}`}
+            title={brief.read ? "Mark as unread" : "Mark as read"}
+            aria-label={brief.read ? "Mark as unread" : "Mark as read"}
+            onClick={() => onToggleRead(brief)}
+          />
+          <button className="row-main" onClick={() => onOpen(brief)}>
           {seriesTitle ? (
             <span
               className="row-date-lead"
@@ -202,7 +271,8 @@ function BriefList({
               {brief.date_source === "mtime" && " ~"}
             </span>
           )}
-        </button>
+          </button>
+        </div>
       ))}
     </div>
   );

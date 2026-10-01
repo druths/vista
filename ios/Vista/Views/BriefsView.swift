@@ -7,17 +7,28 @@ struct BriefsView: View {
     @State private var briefs: [Brief] = []
     @State private var sort = SortOption()
     @State private var loading = true
+    /// Unread by default: a briefing is a stream you work through, so what's
+    /// left to read is the useful view.
+    @State private var showUnreadOnly = true
 
     /// When every brief in a briefing carries the same title — the usual shape
     /// of a daily series — the date is what distinguishes them, so it leads.
+    private var visible: [Brief] {
+        showUnreadOnly ? briefs.filter { !$0.isRead } : briefs
+    }
+
     private var seriesTitle: String? {
+        // Decided from the whole briefing, not from what's on screen. Whether
+        // this is a recurring series is a property of the briefing; filtering
+        // down to a single unread brief must not turn its date back into a
+        // repeated title.
         let titles = Set(briefs.map(\.title))
         return briefs.count > 1 && titles.count == 1 ? titles.first : nil
     }
 
     var body: some View {
         List {
-            ForEach(briefs) { brief in
+            ForEach(visible) { brief in
                 NavigationLink(value: brief) {
                     BriefRow(brief: brief, leadWithDate: seriesTitle != nil)
                 }
@@ -31,8 +42,18 @@ struct BriefsView: View {
         }
         .listStyle(.plain)
         .overlay {
-            if loading && briefs.isEmpty {
+            if loading && visible.isEmpty {
                 ProgressView()
+            } else if !loading && visible.isEmpty && showUnreadOnly && !briefs.isEmpty {
+                // Nothing unread isn't the same as nothing here — say which,
+                // and offer the way out of the filter.
+                ContentUnavailableView {
+                    Label("Nothing unread", systemImage: "checkmark.circle")
+                } description: {
+                    Text("You're up to date in \(briefing.name).")
+                } actions: {
+                    Button("Show All") { showUnreadOnly = false }
+                }
             } else if !loading && briefs.isEmpty {
                 ContentUnavailableView {
                     Label("No briefs here", systemImage: "doc.text.magnifyingglass")
@@ -49,6 +70,20 @@ struct BriefsView: View {
                 .task { await setRead(brief, read: true) }
         }
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Picker("Show", selection: $showUnreadOnly) {
+                        Text("Unread").tag(true)
+                        Text("All").tag(false)
+                    }
+                } label: {
+                    // A filled icon when filtering, so a short list is never
+                    // mistaken for an empty briefing.
+                    Label("Show", systemImage: showUnreadOnly
+                          ? "line.3.horizontal.decrease.circle.fill"
+                          : "line.3.horizontal.decrease.circle")
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 SortMenu(sort: $sort)
             }

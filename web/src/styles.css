@@ -217,15 +217,46 @@ input:focus, textarea:focus, select:focus {
 }
 .row:hover { background: var(--surface-alt); }
 .row.selected { background: var(--accent-soft); }
+/* A button, not a marker: clicking toggles read, as in Mail. The hit area is
+   bigger than the dot it draws. */
 .row-dot {
   flex: 0 0 auto;
-  width: 8px;
-  height: 8px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background: none;
+  border-radius: 50%;
+  position: relative;
+  align-self: center;
+  cursor: pointer;
+}
+.row-dot::after {
+  content: "";
+  position: absolute;
+  inset: 5px;
   border-radius: 50%;
   background: transparent;
-  align-self: center;
 }
-.row-dot.unread { background: var(--accent); }
+.row-dot.unread::after { background: var(--accent); }
+/* Hovering a read brief shows a faint dot, so the control is discoverable. */
+.row-dot:hover::after { background: var(--border); }
+.row-dot.unread:hover::after { background: var(--accent); opacity: 0.55; }
+
+.row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  border: 0;
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  text-align: left;
+  cursor: pointer;
+}
+.row-main:hover { background: none; }
 
 .row-title { font-weight: 500; }
 /* When every brief in a series shares a title, the date carries the identity
