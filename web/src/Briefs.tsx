@@ -47,6 +47,26 @@ export function BriefsScreen({ briefing, onError }: Props) {
   // Selecting a different briefing should not leave the previous brief open.
   useEffect(() => setSelected(null), [briefing.id]);
 
+  /// Clear a whole briefing at once — everything starts unread, so a new
+  /// briefing arrives as a wall of dots.
+  async function markAllRead() {
+    const keys = briefs.filter((b) => !b.read).map((b) => b.key);
+    if (keys.length === 0) return;
+    const previousBriefs = briefs;
+    const previousUnread = unread;
+    setBriefs((current) => current.map((b) => ({ ...b, read: true })));
+    setUnread(0);
+    try {
+      await markBriefsRead(briefing.id, keys, true);
+    } catch (error) {
+      // Put the dots back rather than leave the list claiming something the
+      // server doesn't agree with.
+      setBriefs(previousBriefs);
+      setUnread(previousUnread);
+      onError((error as Error).message);
+    }
+  }
+
   /// Opening a brief marks it read, the way a mail client does. Applied
   /// locally first so the dot clears immediately; read state is held on the
   /// server so it matches on every device.
@@ -98,6 +118,11 @@ export function BriefsScreen({ briefing, onError }: Props) {
             setOrder(nextOrder);
           }}
         />
+        {unread > 0 && (
+          <button className="btn-outline" onClick={() => void markAllRead()}>
+            Mark all read
+          </button>
+        )}
       </div>
 
       <div className="content">
