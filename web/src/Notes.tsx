@@ -172,6 +172,7 @@ function NoteEditor({
   const [title, setTitle] = useState("");
   const [state, setState] = useState<SaveState>("saved");
   const [preview, setPreview] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [ready, setReady] = useState(false);
   const timer = useRef<number | null>(null);
   // Tracks what's on the server so autosave can skip no-op writes.
@@ -252,6 +253,16 @@ function NoteEditor({
     };
   }, [ready, flush]);
 
+  // Escape is what people reach for to leave a full-window view.
+  useEffect(() => {
+    if (!expanded) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setExpanded(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [expanded]);
+
   async function handleRename() {
     const next = window.prompt("Rename note", title);
     if (!next || next === title) return;
@@ -286,7 +297,7 @@ function NoteEditor({
           : "Saved";
 
   return (
-    <div className="pane">
+    <div className={`pane ${expanded ? "expanded" : ""}`}>
       <div className="pane-head">
         <button className="btn-outline" onClick={onClose}>
           ← Notes
@@ -302,6 +313,13 @@ function NoteEditor({
           disabled={state === "saving" || state === "saved"}
         >
           Save
+        </button>
+        <button
+          className="btn-outline"
+          onClick={() => setExpanded((v) => !v)}
+          title={expanded ? "Collapse (Esc)" : "Expand to fill the window"}
+        >
+          {expanded ? "Collapse" : "Expand"}
         </button>
         <button className="btn-outline" onClick={() => setPreview((v) => !v)}>
           {preview ? "Edit" : "Preview"}

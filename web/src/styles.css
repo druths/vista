@@ -357,6 +357,21 @@ input:focus, textarea:focus, select:focus {
 /* --- reader / editor ----------------------------------------------------- */
 
 .pane { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--surface); }
+
+/* Fills the window rather than its slot, so the sidebar and the note list get
+   out of the way without the editor needing to know they exist. */
+.pane.expanded {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: var(--bg);
+}
+.pane.expanded .editor,
+.pane.expanded .preview {
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+}
 .pane-head {
   display: flex;
   align-items: center;
