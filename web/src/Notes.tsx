@@ -49,8 +49,11 @@ export function NotesScreen({ onError }: { onError: (message: string) => void })
   async function handleNew() {
     try {
       const created = await createNote("", "");
-      await refresh();
+      // Open as soon as the note exists. Nothing about it needs the list
+      // refresh, and that refresh re-reads every note to build previews —
+      // seconds of waiting for a blank page.
       setOpenName(created.name);
+      void refresh();
     } catch (error) {
       onError((error as Error).message);
     }

@@ -303,7 +303,10 @@ final class NoteStore {
         }
         upsert(Entry(localName: name, remoteName: nil, content: content,
                      baseVersion: nil, modified: .now, dirty: true))
-        await sync()
+        // Push in the background. The note exists the moment it's made, and
+        // in an offline-first store the editor has no reason to wait on a
+        // round trip before opening.
+        Task { await sync() }
         return name
     }
 
