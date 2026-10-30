@@ -275,7 +275,10 @@ actor VistaClient {
         try await get("api/notes", query: [
             .init(name: "sort", value: sort.field.rawValue),
             .init(name: "order", value: sort.order),
-            .init(name: "preview", value: "true"),
+            // The app builds its own previews from cached content, so asking
+            // the server for them means it opens every note to produce
+            // something that is decoded and discarded.
+            .init(name: "preview", value: "false"),
         ])
     }
 

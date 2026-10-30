@@ -22,6 +22,20 @@ struct NoteEditorView: View {
 
     private var title: String { (currentName as NSString).deletingPathExtension }
 
+    /// What to put in the rename field. Renaming a note almost always means
+    /// making the filename match the heading already written at the top of
+    /// it, so that beats offering back the name being replaced.
+    private var suggestedTitle: String {
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix("#") else { continue }
+            let heading = trimmed.drop(while: { $0 == "#" })
+                .trimmingCharacters(in: .whitespaces)
+            if !heading.isEmpty { return heading }
+        }
+        return title
+    }
+
     /// Edits are written to the local cache immediately, so "saved" here means
     /// the server has it. Offline that honestly reads as waiting, not failed.
     private var status: String {
@@ -50,7 +64,7 @@ struct NoteEditorView: View {
                 // The title is the filename; tapping it renames, which is more
                 // discoverable than burying rename in the overflow menu.
                 Button {
-                    draftTitle = title
+                    draftTitle = suggestedTitle
                     renaming = true
                 } label: {
                     VStack(spacing: 0) {
@@ -74,7 +88,7 @@ struct NoteEditorView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button("Rename", systemImage: "pencil") {
-                        draftTitle = title
+                        draftTitle = suggestedTitle
                         renaming = true
                     }
                     Button("Delete", systemImage: "trash", role: .destructive) {

@@ -16,10 +16,106 @@ import { formatRelative } from "./format";
 import { SortControls } from "./SortControls";
 
 const AUTOSAVE_MS = 900;
+const PREVIEW_CHARS = 200;
+
+/**
+ * The note's first markdown heading, or "" if it has none.
+ *
+ * Renaming a note almost always means making the filename match the heading
+ * already written at the top of it, so that's the better default than the
+ * name being replaced.
+ */
+function headingOf(content: string): string {
+  for (const raw of content.split("\n")) {
+    const line = raw.trim();
+    if (!line.startsWith("#")) continue;
+    const heading = line.replace(/^#+\s*/, "").trim();
+    if (heading) return heading;
+  }
+  return "";
+}
+
+/**
+ * Mirrors the server's `preview_of`.
+ *
+ * The server builds previews by opening every note, which is why a full
+ * listing is slow. After an edit the content is already here, so the row can
+ * be kept honest without asking for the whole list again.
+ */
+function previewOf(content: string, title: string): string {
+  const lines: string[] = [];
+  for (const raw of content.split("\n")) {
+    let line = raw.trim();
+    if (!line) continue;
+    line = line
+      .replace(/^#{1,6}\s*/, "")
+      .replace(/^[-*+]\s+/, "")
+      .replace(/^>\s*/, "")
+      .replace(/[*_`]/g, "");
+    if (!line) continue;
+    // A heading that only restates the title is shown beside it already.
+    if (lines.length === 0 && line.toLowerCase() === title.trim().toLowerCase()) continue;
+    lines.push(line);
+    if (lines.join(" ").length > PREVIEW_CHARS) break;
+  }
+  const joined = lines.join(" ");
+  return joined.length > PREVIEW_CHARS
+    ? `${joined.slice(0, PREVIEW_CHARS).trimEnd()}…`
+    : joined;
+}
 /** Backoff ceiling for retrying a failed save. */
 const RETRY_CAP_MS = 300_000;
 
 type SaveState = "saved" | "dirty" | "saving" | "error";
+
+/** Inline so they inherit the theme's colour and need no icon dependency. */
+const icons = {
+  back: "M15 18l-6-6 6-6",
+  expand: "M8 3H3v5M16 3h5v5M21 16v5h-5M3 16v5h5",
+  collapse: "M8 3v5H3M16 3v5h5M21 16h-5v5M3 16h5v5",
+  preview: "M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7zM12 15a3 3 0 100-6 3 3 0 000 6z",
+  edit: "M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z",
+  rename: "M4 7V5h16v2M9 19h6M12 5v14",
+  save: "M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2zM17 21v-8H7v8M7 3v5h8",
+  trash: "M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6",
+} as const;
+
+function Icon({ path }: { path: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+         strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d={path} />
+    </svg>
+  );
+}
+
+function IconButton({
+  label,
+  path,
+  onClick,
+  disabled,
+  danger,
+}: {
+  label: string;
+  path: string;
+  onClick: () => void;
+  disabled?: boolean;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      className={`icon-button ${danger ? "danger" : ""}`}
+      // Hover text and the accessible name are the same thing here: the icon
+      // alone doesn't say what it does.
+      title={label}
+      aria-label={label}
+      onClick={onClick}
+      disabled={disabled}
+    >
+      <Icon path={path} />
+    </button>
+  );
+}
 
 export function NotesScreen({ onError }: { onError: (message: string) => void }) {
   const [notes, setNotes] = useState<Note[]>([]);
@@ -46,14 +142,55 @@ export function NotesScreen({ onError }: { onError: (message: string) => void })
     void refresh();
   }, [refresh]);
 
+  /// Every mutation below updates the list in place. Each response already
+  /// says exactly what changed, and re-pulling the list means the server
+  /// reopening every note to rebuild previews.
+  const applySaved = useCallback((noteName: string, content: string) => {
+    setNotes((current) =>
+      current.map((note) =>
+        note.name === noteName
+          ? { ...note, modified: new Date().toISOString(), preview: previewOf(content, note.title) }
+          : note,
+      ),
+    );
+  }, []);
+
+  const applyRenamed = useCallback(
+    (previousName: string, renamed: { name: string; title: string }) => {
+      setNotes((current) =>
+        current.map((note) =>
+          note.name === previousName
+            ? { ...note, name: renamed.name, title: renamed.title }
+            : note,
+        ),
+      );
+      setOpenName(renamed.name);
+    },
+    [],
+  );
+
+  const applyDeleted = useCallback((noteName: string) => {
+    setNotes((current) => current.filter((note) => note.name !== noteName));
+  }, []);
+
   async function handleNew() {
     try {
       const created = await createNote("", "");
-      // Open as soon as the note exists. Nothing about it needs the list
-      // refresh, and that refresh re-reads every note to build previews —
-      // seconds of waiting for a blank page.
+      // Insert the row rather than re-listing; the response says all the list
+      // needs to know.
+      setNotes((current) => [
+        {
+          name: created.name,
+          title: created.title,
+          path: "",
+          size: 0,
+          modified: new Date().toISOString(),
+          preview: "",
+          starred: false,
+        },
+        ...current,
+      ]);
       setOpenName(created.name);
-      void refresh();
     } catch (error) {
       onError((error as Error).message);
     }
@@ -141,8 +278,9 @@ export function NotesScreen({ onError }: { onError: (message: string) => void })
             key={openName}
             name={openName}
             onClose={() => setOpenName(null)}
-            onChanged={refresh}
-            onRenamed={setOpenName}
+            onSaved={applySaved}
+            onRenamed={applyRenamed}
+            onDeleted={applyDeleted}
             onError={onError}
           />
         ) : (
@@ -161,14 +299,16 @@ export function NotesScreen({ onError }: { onError: (message: string) => void })
 function NoteEditor({
   name,
   onClose,
-  onChanged,
+  onSaved,
   onRenamed,
+  onDeleted,
   onError,
 }: {
   name: string;
   onClose: () => void;
-  onChanged: () => Promise<Note[]>;
-  onRenamed: (name: string) => void;
+  onSaved: (name: string, content: string) => void;
+  onRenamed: (previousName: string, renamed: { name: string; title: string }) => void;
+  onDeleted: (name: string) => void;
   onError: (message: string) => void;
 }) {
   const [content, setContent] = useState("");
@@ -218,7 +358,7 @@ function NoteEditor({
           window.clearTimeout(retry.current);
           retry.current = null;
         }
-        void onChanged();
+        onSaved(name, next);
       } catch (error) {
         setState("error");
         // Report the first failure only; a retry loop shouldn't keep raising
@@ -232,7 +372,7 @@ function NoteEditor({
         retry.current = window.setTimeout(() => void flush(latest.current), delay);
       }
     },
-    [name, onChanged, onError],
+    [name, onSaved, onError],
   );
 
   function handleChange(next: string) {
@@ -267,13 +407,12 @@ function NoteEditor({
   }, [expanded]);
 
   async function handleRename() {
-    const next = window.prompt("Rename note", title);
+    const next = window.prompt("Rename note", headingOf(content) || title);
     if (!next || next === title) return;
     try {
       const renamed = await renameNote(name, next);
       setTitle(renamed.title);
-      await onChanged();
-      onRenamed(renamed.name);
+      onRenamed(name, renamed);
     } catch (error) {
       onError((error as Error).message);
     }
@@ -283,56 +422,57 @@ function NoteEditor({
     if (!window.confirm(`Delete “${title}”? This removes the file from the workspace.`)) return;
     try {
       await deleteNote(name);
-      await onChanged();
+      onDeleted(name);
       onClose();
     } catch (error) {
       onError((error as Error).message);
     }
   }
 
-  const label =
-    state === "saving"
-      ? "Saving…"
-      : state === "dirty"
-        ? "Unsaved"
-        : state === "error"
-          ? "Save failed — retrying"
-          : "Saved";
+  // Short text that doesn't change the header's size as it cycles; the full
+  // wording is on hover.
+  const status = {
+    saved: { short: "Saved", full: "Saved", tone: "" },
+    dirty: { short: "Unsaved", full: "Unsaved changes", tone: "pending" },
+    saving: { short: "Saving", full: "Saving…", tone: "pending" },
+    error: { short: "Retrying", full: "Save failed — retrying", tone: "failed" },
+  }[state];
 
   return (
     <div className={`pane ${expanded ? "expanded" : ""}`}>
-      <div className="pane-head">
-        <button className="btn-outline" onClick={onClose}>
-          ← Notes
-        </button>
-        <h2>{title}</h2>
-        <span className={`save-state ${state === "dirty" || state === "error" ? "dirty" : ""}`}>
-          {label}
-        </span>
-        <div className="spacer" />
-        <button
-          className="btn-outline"
-          onClick={() => void flush(content)}
-          disabled={state === "saving" || state === "saved"}
-        >
-          Save
-        </button>
-        <button
-          className="btn-outline"
-          onClick={() => setExpanded((v) => !v)}
-          title={expanded ? "Collapse (Esc)" : "Expand to fill the window"}
-        >
-          {expanded ? "Collapse" : "Expand"}
-        </button>
-        <button className="btn-outline" onClick={() => setPreview((v) => !v)}>
-          {preview ? "Edit" : "Preview"}
-        </button>
-        <button className="btn-outline" onClick={handleRename}>
-          Rename
-        </button>
-        <button className="btn-danger" onClick={handleDelete}>
-          Delete
-        </button>
+      <div className="editor-head">
+        {/* Its own line, never wrapping. Sharing a row with the status text
+            meant either one changing length reflowed the header and bumped
+            the whole pane. */}
+        <h2 className="editor-title" title={title}>
+          {title}
+        </h2>
+        <div className="editor-toolbar">
+          <IconButton label="Back to notes" path={icons.back} onClick={onClose} />
+          <IconButton
+            label={expanded ? "Collapse (Esc)" : "Expand to fill the window"}
+            path={expanded ? icons.collapse : icons.expand}
+            onClick={() => setExpanded((v) => !v)}
+          />
+          <IconButton
+            label={preview ? "Edit" : "Preview"}
+            path={preview ? icons.edit : icons.preview}
+            onClick={() => setPreview((v) => !v)}
+          />
+          <IconButton label="Rename note" path={icons.rename} onClick={handleRename} />
+          <IconButton
+            label="Save now"
+            path={icons.save}
+            onClick={() => void flush(content)}
+            disabled={state === "saving" || state === "saved"}
+          />
+          <IconButton label="Delete note" path={icons.trash} onClick={handleDelete} danger />
+          {/* Last and right-aligned, so its text growing pushes nothing. */}
+          <span className={`editor-state ${status.tone}`} title={status.full}>
+            <span className="dot" />
+            {status.short}
+          </span>
+        </div>
       </div>
 
       {preview ? (
